@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bakbakan sa Kanto</title>
+<meta name="description" content="A street fighting game, Pinoy style: an arnisador, a sikaran kicker, a barangay tanod, a balut vendor and the Kapre of the balete tree. In 3D, with combos, specials and supers. Arcade, versus and training.">
+<meta property="og:title" content="Bakbakan sa Kanto: street fighting, Pinoy style">
+<meta property="og:description" content="Arnis, sikaran, a tanod's batuta and a basket of balut. Beat the arcade ladder to face the Kapre.">
+<meta property="og:image" content="https://bakbakan-sa-kanto.vercel.app/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#1b1320">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Bakbakan">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+:root { --ink: #fff8e1; --muted: #e8d8c8; --gold: #ffd23f; --red: #e8384f; --blue: #3aa0d8; --dark: #1e1a22; color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #1b1320; color: var(--ink); font: 16px/1.4 "Baloo 2", system-ui, -apple-system, "Segoe UI", sans-serif; }
+.stage { position: fixed; inset: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
+#view { display: block; width: 100%; height: 100%; }
+[hidden] { display: none !important; }
+button { font: inherit; font-weight: 700; color: var(--ink); background: var(--blue); border: 3px solid var(--dark); border-radius: 12px; padding: 8px 18px; cursor: pointer; min-height: 44px; box-shadow: 0 4px 0 var(--dark); }
+button:focus-visible { outline: 3px solid #ff8ae2; outline-offset: 2px; }
+button.primary { background: var(--gold); color: #2a1a0a; font-size: 18px; }
+button[aria-pressed=true] { background: var(--red); }
+/* the HUD */
+#hud { position: absolute; inset: 0; pointer-events: none; }
+.bars { position: absolute; top: max(10px, env(safe-area-inset-top)); left: 12px; right: 12px; display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: start; }
+.side .name { font-weight: 800; font-size: 15px; letter-spacing: .04em; text-shadow: 0 2px 0 #000; }
+.side.p2 { text-align: right; }
+.bar { position: relative; height: 22px; background: #2a1a24; border: 3px solid var(--dark); border-radius: 6px; overflow: hidden; box-shadow: 0 3px 0 var(--dark); }
+.bar .trail, .bar .fill { position: absolute; top: 0; bottom: 0; }
+.side.p1 .trail, .side.p1 .fill { right: 0; } .side.p2 .trail, .side.p2 .fill { left: 0; }
+.bar .trail { background: #ff5c5c; transition: width .6s .35s; }
+.bar .fill { background: linear-gradient(180deg, #ffe680, #ffd23f 55%, #e8a01f); }
+.bar .fill.low { background: linear-gradient(180deg, #ff9a7a, #e8384f); }
+.wins { display: flex; gap: 5px; margin-top: 4px; min-height: 14px; }
+.side.p2 .wins { justify-content: flex-end; }
+.wins i { width: 14px; height: 14px; border-radius: 50%; background: var(--gold); border: 2px solid var(--dark); }
+.timer { font-weight: 800; font-size: 40px; line-height: 1; color: var(--gold); -webkit-text-stroke: 2px var(--dark); paint-order: stroke fill; min-width: 64px; text-align: center; text-shadow: 0 3px 0 var(--dark); }
+.timer.low { color: #ff6a6a; }
+.meters { position: absolute; bottom: max(12px, env(safe-area-inset-bottom)); left: 12px; right: 12px; display: flex; justify-content: space-between; gap: 12px; }
+.meter { position: relative; width: min(34vw, 280px); height: 16px; background: #2a1a24; border: 3px solid var(--dark); border-radius: 6px; overflow: hidden; }
+.meter .mfill { position: absolute; top: 0; bottom: 0; background: linear-gradient(90deg, #2f6fd6, #8fd0ff); }
+.meter.p1 .mfill { left: 0; } .meter.p2 .mfill { right: 0; }
+.meter.full .mfill { background: linear-gradient(90deg, #ff8ae2, #ffd23f, #7cf29a); animation: shimmer .6s linear infinite alternate; }
+.meter span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 11px; font-weight: 800; letter-spacing: .12em; text-shadow: 0 1px 0 #000; }
+@keyframes shimmer { to { filter: brightness(1.35); } }
+.combo { position: absolute; top: 24%; font-weight: 800; font-size: clamp(26px, 5vw, 44px); line-height: .9; color: var(--gold); -webkit-text-stroke: 2px var(--dark); paint-order: stroke fill; text-shadow: 0 4px 0 var(--dark); }
+.combo small { display: block; font-size: .45em; color: #fff; }
+.combo.p1 { left: 16px; } .combo.p2 { right: 16px; text-align: right; }
+.callout { position: absolute; top: 38%; font-weight: 800; font-size: clamp(18px, 3.4vw, 28px); color: #fff; -webkit-text-stroke: 2px var(--dark); paint-order: stroke fill; }
+.callout.p1 { left: 16px; } .callout.p2 { right: 16px; }
+.pop { animation: pop .3s ease-out; }
+@keyframes pop { from { transform: scale(.5); opacity: 0; } }
+#banner { position: absolute; left: 0; right: 0; top: 34%; text-align: center; font-weight: 800; font-size: clamp(48px, 13vw, 120px); line-height: .9; color: var(--gold); -webkit-text-stroke: 4px var(--dark); paint-order: stroke fill; text-shadow: 0 8px 0 var(--dark), 0 0 40px rgba(255,160,60,.5); }
+#banner small { display: block; font-size: .3em; color: #fff; -webkit-text-stroke: 2px var(--dark); }
+#banner.red { color: #ff5c5c; }
+#train { position: absolute; left: 12px; top: 90px; background: rgba(20,14,24,.72); border-radius: 10px; padding: 6px 10px; font-size: 13px; line-height: 1.35; }
+/* touch */
+#pad { position: absolute; left: 18px; bottom: calc(max(18px, env(safe-area-inset-bottom)) + 26px); width: 140px; height: 140px; border-radius: 50%; background: rgba(255,255,255,.1); border: 2px solid rgba(255,255,255,.3); pointer-events: auto; display: none; }
+#knob { position: absolute; left: 45px; top: 45px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,210,63,.8); }
+.tbtns { position: absolute; right: 14px; bottom: calc(max(18px, env(safe-area-inset-bottom)) + 26px); display: none; grid-template-columns: repeat(3, 62px); gap: 8px; pointer-events: auto; }
+body.touch.fighting #pad { display: block; } body.touch.fighting .tbtns { display: grid; }
+.tbtns button { width: 62px; height: 62px; border-radius: 50%; padding: 0; font-size: 18px; touch-action: none; }
+#tb-l { background: #3aa0d8; } #tb-h { background: #e8384f; } #tb-s { background: #ffd23f; color: #2a1a0a; }
+#tb-t { background: #7a5ad8; font-size: 12px; } #tb-x { background: linear-gradient(135deg, #ff8ae2, #ffd23f); color: #2a1a0a; font-size: 11px; }
+body.touch .meters { bottom: 6px; }
+body.touch .meter { width: 30vw; }
+.corner { position: absolute; right: 12px; top: calc(max(10px, env(safe-area-inset-top)) + 64px); pointer-events: auto; }
+.corner button { min-height: 30px; padding: 0 10px; font-size: 13px; }
+/* screens */
+.screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: safe center; gap: 10px; padding: 20px 16px; text-align: center; background: radial-gradient(ellipse at 50% 45%, rgba(20,14,24,.2), rgba(20,14,24,.72)); overflow-y: auto; }
+.logo { margin: 0; font-size: clamp(42px, 10vw, 92px); line-height: .88; font-weight: 800; color: var(--gold); -webkit-text-stroke: 3px var(--dark); paint-order: stroke fill; text-shadow: 0 6px 0 #a3311f, 0 9px 0 var(--dark); }
+.logo small { display: block; margin-top: 10px; font-size: .3em; color: #fff; letter-spacing: .06em; -webkit-text-stroke: 2px var(--dark); }
+h2 { margin: 0; font-size: clamp(24px, 6vw, 38px); color: var(--gold); -webkit-text-stroke: 2px var(--dark); paint-order: stroke fill; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.muted { color: var(--ink); margin: 0; font-size: 14px; text-shadow: 0 1px 2px #000, 0 0 6px rgba(0,0,0,.6); }
+.card { background: rgba(20, 14, 24, .86); border: 3px solid var(--dark); border-radius: 16px; padding: 12px 16px; max-width: 560px; text-align: left; box-shadow: 0 5px 0 var(--dark); }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 14px; }
+kbd { background: #3a2a3a; border: 1px solid #6a5a6a; border-radius: 4px; padding: 0 6px; font: 12px ui-monospace, monospace; }
+.roster { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.pick { width: 96px; min-height: 0; padding: 4px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; gap: 0; background: #3a2a3a; position: relative; }
+.pick img { width: 72px; height: 72px; image-rendering: pixelated; border-radius: 8px; }
+.pick b { font-size: 13px; line-height: 1.1; }
+.pick.p1 { outline: 4px solid var(--blue); } .pick.p2 { outline: 4px dashed var(--red); outline-offset: 3px; }
+.pick.p1.p2 { outline: 4px solid var(--blue); box-shadow: 0 0 0 7px var(--red); }
+.pick.locked img { filter: brightness(0); opacity: .6; }
+.pick .tag { position: absolute; top: -8px; font-size: 11px; font-weight: 800; border-radius: 6px; padding: 0 5px; border: 2px solid var(--dark); }
+.pick .tag.t1 { left: -6px; background: var(--blue); } .pick .tag.t2 { right: -6px; background: var(--red); }
+.info { max-width: 560px; }
+.info h3 { margin: 0; font-size: 22px; color: var(--gold); line-height: 1.1; }
+.info .who { font-size: 13px; color: var(--muted); }
+.moves { display: grid; grid-template-columns: auto 1fr; gap: 1px 12px; font-size: 13px; margin-top: 6px; }
+.moves span:nth-child(odd) { color: var(--gold); font-weight: 700; white-space: nowrap; }
+.ladder { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.ladder span { background: #3a2a3a; border: 2px solid var(--dark); border-radius: 8px; padding: 2px 8px; font-size: 13px; }
+.ladder span.done { background: #2e7d4a; } .ladder span.now { background: var(--gold); color: #2a1a0a; font-weight: 800; }
+.quote { font-size: 18px; font-weight: 700; max-width: 30em; }
+.help { position: absolute; bottom: 8px; left: 0; right: 0; text-align: center; font-size: 12px; color: var(--muted); }
+.help a { color: var(--gold); }
+body.fighting .help { display: none; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+@media (max-height: 520px) { .pick { width: 78px; } .pick img { width: 56px; height: 56px; } .screen { gap: 6px; padding: 10px; } .logo { font-size: 44px; } #info .moves { display: none; } #pause-moves .moves { grid-template-columns: repeat(2, auto 1fr); } }
+</style>
+</head>
+<body>
+<main class="stage" id="stage">
+  <canvas id="view" aria-label="Two fighters face off on a Filipino street"></canvas>
+
+  <div id="hud" hidden>
+    <div class="bars">
+      <div class="side p1"><div class="name" id="n1"></div><div class="bar"><div class="trail" id="t1"></div><div class="fill" id="h1"></div></div><div class="wins" id="w1"></div></div>
+      <div class="timer" id="timer">99</div>
+      <div class="side p2"><div class="name" id="n2"></div><div class="bar"><div class="trail" id="t2"></div><div class="fill" id="h2"></div></div><div class="wins" id="w2"></div></div>
+    </div>
+    <div class="meters"><div class="meter p1" id="mm1"><div class="mfill" id="m1"></div><span>SUPER</span></div><div class="meter p2" id="mm2"><div class="mfill" id="m2"></div><span>SUPER</span></div></div>
+    <div class="combo p1" id="c1"></div><div class="combo p2" id="c2"></div>
+    <div class="callout p1" id="s1"></div><div class="callout p2" id="s2"></div>
+    <div id="banner" hidden></div>
+    <div id="train" hidden></div>
+    <div id="pad"><div id="knob"></div></div>
+    <div class="tbtns"><button type="button" id="tb-t" aria-label="Throw">HAGIS</button><button type="button" id="tb-x" aria-label="Super">SUPER</button><span></span><button type="button" id="tb-l" aria-label="Light">L</button><button type="button" id="tb-h" aria-label="Heavy">H</button><button type="button" id="tb-s" aria-label="Special">S</button></div>
+    <div class="corner"><button type="button" id="pause-btn" aria-label="Pause">❚❚</button></div>
+  </div>
+
+  <section class="screen" id="title">
+    <h1 class="logo">BAKBAKAN<br>SA KANTO<small>street fighting, Pinoy style</small></h1>
+    <div class="row">
+      <button type="button" class="primary" id="go-arcade">Arcade</button>
+      <button type="button" id="go-versus">Versus</button>
+      <button type="button" id="go-training">Ensayo · Training</button>
+    </div>
+    <div class="row" role="group" aria-label="CPU difficulty">
+      <button type="button" data-diff="madali">Madali</button>
+      <button type="button" data-diff="katamtaman">Katamtaman</button>
+      <button type="button" data-diff="mahirap">Mahirap</button>
+    </div>
+    <div class="row"><button type="button" id="how-btn">Paano · How to play</button><button type="button" class="sound"></button></div>
+    <p class="muted" id="title-best"></p>
+    <p class="muted">🎮 PlayStation or any controller · keyboard (two players can share) · touch</p>
+  </section>
+
+  <section class="screen" id="how" hidden>
+    <h2>Paano lumaban</h2>
+    <div class="card">
+      <div class="keys">
+        <span>Player 1</span><span><kbd>A</kbd><kbd>D</kbd> walk (back guards) · <kbd>W</kbd> jump · <kbd>S</kbd> crouch · <kbd>J</kbd> light · <kbd>K</kbd> heavy · <kbd>L</kbd> special · <kbd>I</kbd> throw · <kbd>U</kbd> super</span>
+        <span>Player 2</span><span><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd> · <kbd>1</kbd> light · <kbd>2</kbd> heavy · <kbd>3</kbd> special · <kbd>4</kbd> throw · <kbd>5</kbd> super (number row or numpad)</span>
+        <span>🎮</span><span>stick or d-pad · □ light · △ heavy · ○ or ✕ special · L1 throw · R1 super · Options pause</span>
+        <span>📱</span><span>the pad on the left · L, H, S, HAGIS, SUPER on the right</span>
+      </div>
+      <ul style="margin:8px 0 0;padding-left:18px;font-size:14px">
+        <li><b>Guard</b> by holding away from your opponent. Crouch-guard lows (sweeps, slides); stand to guard overheads and jump-ins.</li>
+        <li><b>Specials:</b> a motion then S, like ↓↘→ S or →↓↘ S, or the easy way: S alone, ↓ + S, or ← + S.</li>
+        <li><b>Combos:</b> a light can chain into another light or a heavy; a normal that connects can cancel into a special.</li>
+        <li><b>Throws:</b> light + heavy up close. Press them back right away to break a throw.</li>
+        <li><b>Super:</b> fill the bar by fighting, then heavy + special. It can finish a guarding opponent.</li>
+      </ul>
+    </div>
+    <button type="button" class="primary" id="how-ok">Sige! · Got it</button>
+  </section>
+
+  <section class="screen" id="select" hidden>
+    <h2 id="select-title">Pumili ng manlalaban</h2>
+    <div class="roster" id="roster"></div>
+    <div class="card info" id="info"></div>
+    <div class="row" id="select-extra"></div>
+    <div class="row"><button type="button" class="primary" id="select-ok">Laban na! · Fight</button><button type="button" class="menu">Menu</button></div>
+    <p class="muted" id="select-hint"></p>
+  </section>
+
+  <section class="screen" id="ladder" hidden>
+    <h2 id="ladder-title"></h2>
+    <div class="ladder" id="ladder-list"></div>
+    <p class="quote" id="ladder-quote"></p>
+    <div class="row"><button type="button" class="primary" id="ladder-ok">Laban! · Fight</button><button type="button" class="menu">Menu</button></div>
+  </section>
+
+  <section class="screen" id="pause" hidden>
+    <h2>Hinto · Paused</h2>
+    <div class="card info" id="pause-moves"></div>
+    <div class="row"><button type="button" class="primary" id="resume">Tuloy · Resume</button><button type="button" class="sound"></button><button type="button" class="menu">Menu</button></div>
+  </section>
+
+  <section class="screen" id="result" hidden>
+    <h2 id="result-title"></h2>
+    <p class="quote" id="result-quote"></p>
+    <p class="muted" id="result-score"></p>
+    <div class="row" id="result-buttons"></div>
+  </section>
+
+  <p class="help" id="credit">A street fighter by <a href="https://kon2raya.netlify.app" target="_blank" rel="noopener">Lemmuel Turaya</a> · <a href="https://tambayan-arcade.vercel.app/">More games</a> · <a href="https://tambayan-arcade.vercel.app/#support">☕ Support</a></p>
+</main>
+<script>if (matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch');</script>
+<script type="module" src="src/main.mjs"></script>
+</body>
+</html>
