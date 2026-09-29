@@ -209,3 +209,16 @@ test('replays are exact, and a copied match plays on the same', () => {
   const copy = structuredClone(half);
   assert.equal(hashState(play(half, 700, 1500)), hashState(play(copy, 700, 1500)));
 });
+
+test('a knockout drops the loser to the floor, low and quick, not up into the air', () => {
+  const g = ready();
+  g.f[1].hp = 10;
+  let top = 0, floorAt = -1;
+  for (let i = 0; i < 90; i++) {
+    tick(g, [i === 0 ? I({ h: true }) : NOIN, NOIN]);
+    if (g.f[1].state === 'ko') { top = Math.max(top, g.f[1].y); if (floorAt < 0 && g.f[1].y === 0 && i > 2) floorAt = i; }
+  }
+  assert.equal(g.f[1].state, 'ko');
+  assert.ok(top < 0.25, `rose to ${top.toFixed(2)} m`);
+  assert.ok(floorAt > 0 && floorAt < 40, `on the floor by frame ${floorAt}`);
+});

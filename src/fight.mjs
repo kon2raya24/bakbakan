@@ -401,7 +401,8 @@ function checkKO(g, ev) {
   if (!out.length) return;
   for (const d of out) {
     const a = other(g, d), dir = Math.sign(d.x - a.x) || -d.face;
-    d.state = 'ko'; d.move = null; d.mid = null; d.vy = Math.max(d.vy, 0.1); d.y = Math.max(d.y, 0.02); d.vx = dir * 0.045;
+    // knocked back and down, not up: a short, low stagger to the floor (in the air, they just fall)
+    d.state = 'ko'; d.move = null; d.mid = null; d.vy = Math.min(Math.max(d.vy, 0.045), 0.06); d.y = Math.max(d.y, 0.02); d.vx = dir * 0.045;
   }
   g.phase = 'ko'; g.phaseT = ROUND.ko; g.projs = [];
   if (out.length === 2) { g.roundWinner = null; g.draw = true; } else g.roundWinner = 1 - out[0].side;

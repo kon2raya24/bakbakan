@@ -409,5 +409,5 @@ export function createView(canvasEl, { low = false, gfx = null } = {}) {
   }
 
   resize();
-  return { frame, event, resize, setStage, portraits, setMocap(lib) { mocap = lib; }, setCrowd(lib) { crowdLib = lib; seatCrowd(); }, setEnv(e) { env = e; dressStage(); }, get mocap() { return mocap; }, renderer, post, get stage() { return stageId; }, cam };
+  return { frame, event, resize, setStage, portraits, setMocap(lib) { mocap = lib; }, setCrowd(lib) { crowdLib = lib; seatCrowd(); }, setEnv(e) { env = e; dressStage(); }, get mocap() { return mocap; }, renderer, post, scene, models, get stage() { return stageId; }, cam };
 }

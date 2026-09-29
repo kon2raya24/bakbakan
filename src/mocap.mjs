@@ -201,8 +201,6 @@ export function driveMocap(m, f, g, lib, dt, sub, reduced) {
   if (key !== m.stateKey) { m.stateKey = key; m.stateT = 0; m.landed = 0; } else if (g.freeze <= 0) m.stateT += dt;
   if (g.freeze <= 0) m.loopT += dt;
   const want = plan(m, f, g, lib, g.freeze > 0 ? 0 : sub);
-  // a knockout falls rather than floats: the clip carries the drop, the flight only a little hop
-  if (f.state === 'ko' && (f.y > 0 || f.vy > 0)) m.root.position.y *= 0.3;
   // layers: a full-body clip and maybe an upper-body one on top; each fades in, the old ones out
   const wanted = want.upper
     ? [[m.action(lib.slots[want.base.slot], 'lower'), want.base.t], [m.action(lib.slots[want.upper.slot], 'upper'), want.upper.t]]
@@ -213,6 +211,8 @@ export function driveMocap(m, f, g, lib, dt, sub, reduced) {
     if (!wanted.some(([a]) => a === l.a)) l.on = false;
     l.w = clamp(l.w + (l.on ? 1 : -1) * dt / fade, 0, 1);
   }
+  // a clip that has faded out lets go completely: a leftover weight would keep blending it into every pose
+  for (const l of m.layers) if (!l.on && l.w <= 0) l.a.setEffectiveWeight(0);
   m.layers = m.layers.filter((l) => l.on || l.w > 0);
   // weights must cover every bone exactly once, or the rest blends toward the bind pose
   const sum = (part) => m.layers.reduce((a, l) => a + (l.a.userData.part === part ? l.w : 0), 0);
