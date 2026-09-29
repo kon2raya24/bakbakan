@@ -5,6 +5,7 @@ import * as THREE from './vendor/three.module.min.js';
 import { hurtbox, hitbox, pbox, PHYS } from './fight.mjs';
 import { fighterModel, applyPose, animate, impulse, targetPose, mix, STANCE } from './fighters3d.mjs';
 import { buildStage } from './stages3d.mjs';
+import { mocapFighter, driveMocap, mocapImpulse, hasMocap } from './mocap.mjs';
 import { canvas, toTex, rattan } from './tex.mjs';
 
 const TAU = Math.PI * 2;
@@ -69,14 +70,23 @@ export function createView(canvasEl, { low = false } = {}) {
   }
 
   // ---------- fighters, projectiles and effects ----------
+  // the real (motion-captured) fighters once they've loaded; the handmade ones until then, or for good
+  let mocap = null;
   const models = [null, null];
+  const want = (id) => (hasMocap(mocap, id) ? 'mocap' : 'hand');
   function ensureModels(g) {
     for (let i = 0; i < 2; i++) {
-      if (models[i] && models[i].c.id === g.f[i].id) continue;
+      const id = g.f[i].id;
+      if (models[i] && models[i].c.id === id && (models[i].mocap ? 'mocap' : 'hand') === want(id)) continue;
       if (models[i]) scene.remove(models[i].root);
-      models[i] = fighterModel(g.f[i].c, scene, { low });
+      models[i] = want(id) === 'mocap' ? mocapFighter(mocap, g.f[i].c, scene) : fighterModel(g.f[i].c, scene, { low });
     }
   }
+  const shove = (m, heavy, kind) => {
+    if (!m) return;
+    if (m.mocap) mocapImpulse(m, kind === 'hit' ? { lean: heavy ? 4 : 2.5, head: heavy ? 8 : 5 } : kind === 'block' ? { lean: 1.2, head: 1 } : { lean: 3, head: 6 });
+    else impulse(m, kind === 'hit' ? { lean: -(heavy ? 9 : 5), head: -(heavy ? 18 : 11), twist: (Math.random() - 0.5) * 8, roll: (Math.random() - 0.5) * 5 } : kind === 'block' ? { lean: -(heavy ? 3.5 : 2), head: -3 } : { head: -14, lean: -6 });
+  };
   const projMeshes = new Map();
   const rat = rattan(), stickM = new THREE.MeshStandardMaterial({ map: rat.map, normalMap: rat.normalMap, roughness: 0.6 });
   const eggM = new THREE.MeshPhysicalMaterial({ color: '#efe2c8', roughness: 0.4, clearcoat: 0.4 });
@@ -133,16 +143,16 @@ export function createView(canvasEl, { low = false } = {}) {
       case 'hit': {
         const big = e.super ? 1.3 : e.heavy ? 1.0 : 0.65, d = models[1 - e.side];
         // the one hit is shoved: head snapped back, body bent away, a little twist
-        if (d) impulse(d, { lean: -(e.heavy ? 9 : 5), head: -(e.heavy ? 18 : 11), twist: (Math.random() - 0.5) * 8, roll: (Math.random() - 0.5) * 5 });
-        if (models[e.side]) impulse(models[e.side], { lean: e.heavy ? 2.5 : 1.2 }); // and the one hitting leans into it
+        shove(d, e.heavy, 'hit');
+        if (models[e.side] && !models[e.side].mocap) impulse(models[e.side], { lean: e.heavy ? 2.5 : 1.2 }); // and the one hitting leans into it
         spark(e.x, e.y, e.counter ? '#ff7a6a' : '#fff0c8', big);
         spark(e.x, e.y, e.counter ? '#ff5c5c' : '#ffc070', big * 1.1, 0.14, streakTex);
         emit(e.x, e.y, 0.2, e.heavy ? '#ffb060' : '#ffe0a0', e.heavy ? 18 : 10, 3.5, 3, 0.35);
         cam.shake = Math.max(cam.shake, e.super ? 0.1 : e.heavy ? 0.06 : 0.025);
         break;
       }
-      case 'block': spark(e.x, e.y, '#9fd8ff', e.heavy ? 0.7 : 0.5, 0.15); emit(e.x, e.y, 0.2, '#cfe8ff', 8, 2.5, 2, 0.25); if (models[1 - e.side]) impulse(models[1 - e.side], { lean: -(e.heavy ? 3.5 : 2), head: -3 }); break;
-      case 'throw': if (models[1 - e.side]) impulse(models[1 - e.side], { head: -14, lean: -6 }); cam.shake = 0.08; emit(e.x, 0.1, 0.2, '#d8c8a8', 14, 2, 1.5, 0.5, 6); break;
+      case 'block': spark(e.x, e.y, '#9fd8ff', e.heavy ? 0.7 : 0.5, 0.15); emit(e.x, e.y, 0.2, '#cfe8ff', 8, 2.5, 2, 0.25); shove(models[1 - e.side], e.heavy, 'block'); break;
+      case 'throw': shove(models[1 - e.side], true, 'throw'); cam.shake = 0.08; emit(e.x, 0.1, 0.2, '#d8c8a8', 14, 2, 1.5, 0.5, 6); break;
       case 'tech': spark(e.x, 1.2, '#ffffff', 0.8, 0.2, streakTex); break;
       case 'clash': spark(e.x, e.y + 1, '#ffffff', 1.1, 0.25, streakTex); emit(e.x, e.y + 1, 0.2, '#ffd23f', 14, 3, 2, 0.4); break;
       case 'down': emit(e.x, 0.05, 0.2, stageId === 'balete' ? '#6a5a3a' : '#bab2a4', 16, 2.2, 1.2, 0.5, 6); cam.shake = Math.max(cam.shake, 0.04); break;
@@ -168,6 +178,12 @@ export function createView(canvasEl, { low = false } = {}) {
       if (f.state === 'thrown') { const at = g.f[1 - i]; const held = at.move ? clamp((at.mf - at.grabAt) / 8, 0, 1) : 0; x = lerp(f.x, at.x - at.face * 0.1, held * 0.3); y = held * 0.6; }
       if (g.freeze > 0 && (f.state === 'hit' || f.state === 'block' || f.state === 'hitAir') && !o.reduced) x += Math.sin(t * 90) * 0.02;
       m.root.position.set(x, y, 0);
+      if (m.mocap) {
+        driveMocap(m, f, g, mocap, dt, g.freeze > 0 ? 0 : a - 1, o.reduced);
+        if (m.c.id === 'lakan') m.props[0].visible = !g.projs.some((p) => p.side === i && p.kind === 'baston');
+        if (m.cigar && Math.random() < dt * 3) { const wp = new THREE.Vector3(); m.cigar.getWorldPosition(wp); emit(wp.x + 0.12 * f.face, wp.y, wp.z, '#6a6a64', 1, 0.15, 0.5, 1.4, -0.3); }
+        continue;
+      }
       m.flip.scale.x = f.face; m.flip.rotation.y = -0.32 * f.face;
       // a new state or move crossfades from where the body was
       const key = f.state === 'move' ? `m${f.mid}` : `${f.state}${f.crouch ? 'c' : ''}`;
@@ -273,12 +289,17 @@ export function createView(canvasEl, { low = false } = {}) {
     const bg = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshBasicMaterial({ color: '#2a2030' })); bg.position.z = -3; ps.add(bg);
     const px = new Uint8Array(S * S * 4), cv = canvas(S, S), cx = cv.getContext('2d'), img = cx.createImageData(S, S);
     for (const c of roster) {
-      const m = fighterModel(c, ps, { low });
-      m.pose = { ...STANCE, aL: [0.4, 1.2, 0.2], aR: [0.3, 1.4, 0.2], twist: -0.1 }; m.breath = 0;
-      applyPose(m, m.pose);
-      m.flip.rotation.y = -0.75;
+      const real = hasMocap(mocap, c.id), m = real ? mocapFighter(mocap, c, ps) : fighterModel(c, ps, { low });
+      if (real) {
+        const f = { state: 'stand', vx: 0, face: 1, crouch: false, mf: 0, c, y: 0, id: c.id }, gg = { phase: 'fight', freeze: 0, phaseT: 0 };
+        m.loopT = 0.4; driveMocap(m, f, gg, mocap, 0.016, 0, true); m.turn.rotation.y = 0.55;
+      } else {
+        m.pose = { ...STANCE, aL: [0.4, 1.2, 0.2], aR: [0.3, 1.4, 0.2], twist: -0.1 }; m.breath = 0;
+        applyPose(m, m.pose);
+        m.flip.rotation.y = -0.75;
+      }
       ps.updateMatrixWorld(true);
-      const head = new THREE.Vector3(); m.head.getWorldPosition(head);
+      const head = new THREE.Vector3(); (real ? m.bones.Head : m.head).getWorldPosition(head);
       bg.material.color.set(c.colors.accent).multiplyScalar(0.35);
       pc.position.set(head.x + 0.55 * c.build, head.y + 0.06 * c.build, head.z + 0.95 * c.build); pc.lookAt(head.x, head.y + 0.02 * c.build, head.z);
       renderer.setRenderTarget(rt); renderer.render(ps, pc); renderer.readRenderTargetPixels(rt, 0, 0, S, S, px); renderer.setRenderTarget(null);
@@ -292,5 +313,5 @@ export function createView(canvasEl, { low = false } = {}) {
   }
 
   resize();
-  return { frame, event, resize, setStage, portraits, renderer, get stage() { return stageId; }, cam };
+  return { frame, event, resize, setStage, portraits, setMocap(lib) { mocap = lib; }, get mocap() { return mocap; }, renderer, get stage() { return stageId; }, cam };
 }

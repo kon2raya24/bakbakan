@@ -4,6 +4,7 @@ import { createMatch, tick, NOIN, ROUND, METER } from './fight.mjs';
 import { createAI, aiInput, LEVELS } from './ai.mjs';
 import { ROSTER, STAGES, byId } from './roster.mjs';
 import { createView } from './view3d.mjs';
+import { loadMocap } from './mocap.mjs';
 import { createAudio } from './audio.mjs';
 
 const Q = new URLSearchParams(location.search);
@@ -492,6 +493,12 @@ async function boot() {
     return;
   }
   try { Object.assign(PORTRAITS, view.portraits(ROSTER)); } catch { /* keep the drawn ones */ }
+  // the real, motion-captured fighters load in the background; the handmade ones fill in until then
+  loadMocap(Q.get('mocap') || 'assets/fighters/').then((lib) => {
+    view.setMocap(lib);
+    try { Object.assign(PORTRAITS, view.portraits(ROSTER)); } catch { /* keep what we have */ }
+    if (mode === 'select') renderSelect();
+  }).catch(() => { /* not deployed here: the handmade fighters it is */ });
   window.addEventListener('resize', () => view.resize());
   new ResizeObserver(() => view.resize()).observe($('view'));
   toTitle();

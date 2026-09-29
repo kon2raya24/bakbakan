@@ -1,0 +1,73 @@
+<!doctype html><meta charset="utf-8"><body><script type="module">
+// Mixamo to Bakbakan: characters to GLB, animations to one compact clips file. Run by convert-run.mjs.
+import * as THREE from '../src/vendor/three.module.min.js';
+import { FBXLoader, GLTFExporter, GLTFLoader } from './three-convert.js';
+
+const job = await (await fetch(new URLSearchParams(location.search).get('job'))).json();
+const canon = (n) => n.replace(/^mixamorig\d*[:_]?/i, '');
+const load = (url) => url.toLowerCase().endsWith('.glb') ? new GLTFLoader().loadAsync(url).then((r) => { r.scene.animations = r.animations; return r.scene; }) : new FBXLoader().loadAsync(url);
+const findBone = (obj, name) => { let b = null; obj.traverse((o) => { if (!b && o.isBone && canon(o.name) === name) b = o; }); return b; };
+const result = { chars: {}, clips: {}, log: [] };
+
+// ---------- characters ----------
+for (const ch of job.chars) {
+  const obj = await load(job.dir + ch.file);
+  const isFbx = !ch.file.toLowerCase().endsWith('.glb');
+  obj.animations = [];
+  obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; for (const m of [].concat(o.material)) { if (m.map) m.map.colorSpace = THREE.SRGBColorSpace; } } });
+  const root = new THREE.Group(); root.name = 'fighter'; root.add(obj);
+  if (isFbx) obj.scale.setScalar(0.01); // Mixamo FBX is in centimetres
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root), hips = findBone(root, 'Hips');
+  const hp = new THREE.Vector3(); hips.getWorldPosition(hp);
+  const glb = await new GLTFExporter().parseAsync(root, { binary: true, maxTextureSize: job.maxTexture || 1024, onlyVisible: true });
+  const bytes = new Uint8Array(glb); let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  result.chars[ch.id] = { glb: btoa(bin), height: +box.max.y.toFixed(3), hipY: +hp.y.toFixed(3), size: bytes.length };
+  result.log.push(`${ch.id}: ${(bytes.length / 1e6).toFixed(1)} MB, height ${box.max.y.toFixed(2)} m`);
+}
+
+// ---------- animations ----------
+const dist = (a, b) => a.distanceTo(b);
+for (const an of job.anims) {
+  const obj = await load(job.dir + an.file);
+  const clips = obj.animations || [];
+  for (const clip of clips.slice(0, an.all ? 99 : 1)) {
+    const name = an.all ? clip.name : an.file.replace(/\.(fbx|glb)$/i, '');
+    const hips = findBone(obj, 'Hips');
+    if (!hips) { result.log.push(`skip ${name}: no hips`); continue; }
+    const hipRest = hips.position.y;
+    const tracks = [];
+    for (const t of clip.tracks) {
+      const [node, prop] = t.name.split('.'), bone = canon(node);
+      if (prop === 'scale' || (prop === 'position' && bone !== 'Hips')) continue;
+      // trim keys a straight line between their neighbours already gives
+      const n = prop === 'quaternion' ? 4 : 3, tol = prop === 'quaternion' ? 6e-4 : hipRest * 2e-4;
+      const keep = [0];
+      for (let i = 1; i < t.times.length - 1; i++) {
+        const a = keep[keep.length - 1], b = i + 1, f = (t.times[i] - t.times[a]) / (t.times[b] - t.times[a]);
+        let err = 0;
+        for (let c = 0; c < n; c++) { const lin = t.values[a * n + c] + (t.values[b * n + c] - t.values[a * n + c]) * f; err = Math.max(err, Math.abs(lin - t.values[i * n + c])); }
+        if (err > tol) keep.push(i);
+      }
+      if (t.times.length > 1) keep.push(t.times.length - 1);
+      const dp = prop === 'quaternion' ? 1e4 : 1e3 / hipRest * 10;
+      tracks.push([bone, prop === 'quaternion' ? 'q' : 'p', keep.map((i) => +t.times[i].toFixed(3)), keep.flatMap((i) => Array.from({ length: n }, (_, c) => Math.round(t.values[i * n + c] * dp) / dp))]);
+    }
+    // when the fists and feet reach furthest from the hips: the moment a strike lands
+    const mixer = new THREE.AnimationMixer(obj), act = mixer.clipAction(clip); act.play();
+    const bones = Object.fromEntries(['Hips', 'LeftHand', 'RightHand', 'LeftFoot', 'RightFoot', 'Head'].map((b) => [b, findBone(obj, b)]));
+    const P = (b) => { const v = new THREE.Vector3(); bones[b].getWorldPosition(v); return v; };
+    const reach = { hand: [0, 0], foot: [0, 0] }, dt = 1 / 30;
+    let lowHead = Infinity;
+    for (let tt = 0; tt <= clip.duration; tt += dt) {
+      mixer.setTime(tt); obj.updateMatrixWorld(true);
+      const h = P('Hips'), hd = Math.max(dist(P('LeftHand'), h), dist(P('RightHand'), h)), fd = Math.max(dist(P('LeftFoot'), h), dist(P('RightFoot'), h));
+      if (tt < clip.duration * 0.8) { if (hd > reach.hand[1]) reach.hand = [+tt.toFixed(3), hd]; if (fd > reach.foot[1]) reach.foot = [+tt.toFixed(3), fd]; }
+      lowHead = Math.min(lowHead, P('Head').y);
+    }
+    result.clips[name] = { d: +clip.duration.toFixed(3), hip: +hipRest.toFixed(3), hit: { hand: reach.hand[0], foot: reach.foot[0] }, tr: tracks };
+    result.log.push(`${name}: ${clip.duration.toFixed(2)} s, ${tracks.length} tracks, hand ${reach.hand[0]} s, foot ${reach.foot[0]} s`);
+  }
+}
+window.__result = JSON.stringify(result);
+</script>
