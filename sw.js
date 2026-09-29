@@ -1,10 +1,10 @@
 // Offline play: the game's own files (three.js included) are cached on install and served
 // cache-first; the webfont is cached the first time it loads. Bump VERSION whenever a file changes.
-const VERSION = 'bakbakan-v3';
+const VERSION = 'bakbakan-v4';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
-  'src/main.mjs', 'src/fight.mjs', 'src/ai.mjs', 'src/roster.mjs', 'src/view3d.mjs', 'src/audio.mjs', 'src/rng.mjs', 'src/vendor/three.module.min.js',
+  'src/main.mjs', 'src/fight.mjs', 'src/ai.mjs', 'src/roster.mjs', 'src/view3d.mjs', 'src/fighters3d.mjs', 'src/stages3d.mjs', 'src/tex.mjs', 'src/audio.mjs', 'src/rng.mjs', 'src/vendor/three.module.min.js',
 ];
 
 self.addEventListener('install', (e) => {

@@ -48,9 +48,18 @@ The Kapre is the last fight in Arcade. Beat him once and you can pick him in Arc
   - combo scaling, chip damage, the super meter, the round clock, and best-of-three rounds
 - **The fighters:** `src/roster.mjs` holds every fighter as data, including every move's frame data.
 - **The CPU:** `src/ai.mjs` holds the CPU, with its reaction delay and its plans.
-- **The 3D:** `src/view3d.mjs` is [three.js](https://threejs.org), bundled into `src/vendor/` so the game works offline.
-  - The fighters are blocks on a jointed rig (hips, spine, shoulders, elbows, knees), posed every frame from the fight state. Each move has a wind-up, a strike and a return.
-  - No model or image files: the faces, signs and walls are small canvas textures painted pixel by pixel.
+- **The 3D:** [three.js](https://threejs.org), bundled into `src/vendor/` so the game works offline, with no model or image files. Everything is built and painted in code when the game loads.
+  - `src/fighters3d.mjs` builds each fighter to realistic proportions, about seven and a half heads tall, on a jointed rig:
+    - smooth turned limbs and hands
+    - a head sculpted from a sphere (skull, brow, eye sockets, cheekbones, nose, lips, jaw) with a painted face
+    - hair with a soft hairline, skin with a soft sheen, cloth with a weave, rattan sticks, a woven basket
+    - each fighter's own girth: the Kapre is burly and hairy
+  - `src/tex.mjs` paints the textures: fabric, skin, faces, hair, asphalt, planks, concrete, bark and building fronts. Each has a normal map made from its own heights, so light catches the weave, the grain and the cracks.
+  - `src/stages3d.mjs` builds the four stages:
+    - rounded props and building fronts with glass that reflects the sky
+    - a glossy court floor and a wet palengke floor
+    - a gnarled balete with hanging roots
+  - `src/view3d.mjs` handles filmic tone mapping and reflections from each stage's own sky. It adds a key light, a rim light, and the hit sparks, projectiles and supers. It also renders 3D portraits for the select screen.
 - **Sound:** all synthesized with Web Audio, including a little loop for each stage.
 
 Tests (Node 20+): `node --test test/*.test.mjs`.

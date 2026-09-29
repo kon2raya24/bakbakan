@@ -491,6 +491,7 @@ async function boot() {
     show('title');
     return;
   }
+  try { Object.assign(PORTRAITS, view.portraits(ROSTER)); } catch { /* keep the drawn ones */ }
   window.addEventListener('resize', () => view.resize());
   new ResizeObserver(() => view.resize()).observe($('view'));
   toTitle();
