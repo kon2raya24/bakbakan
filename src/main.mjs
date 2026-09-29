@@ -64,7 +64,9 @@ const PORTRAITS = Object.fromEntries(ROSTER.map((c) => [c.id, portrait(c)]));
 let view = null;
 const A = createAudio();
 A.setMuted(data.muted);
-let mode = 'title', g = null, session = null, acc = 0, slow = 0;
+let mode = 'title', g = null, session = null, acc = 0, slow = 0, prev = null;
+// Where everything was one tick ago, so frames can be drawn between ticks.
+const remember = () => ({ f: g.f.map((f) => ({ x: f.x, y: f.y })), p: new Map(g.projs.map((p) => [p, { x: p.x, y: p.y }])) });
 
 const SCREENS = ['title', 'how', 'select', 'ladder', 'pause', 'result'];
 function show(name) {
@@ -461,11 +463,13 @@ function frame(now) {
     while (acc >= 1 / 60 && steps < 4) {
       acc -= 1 / 60; steps++;
       if (slow > 0) slow--;
+      prev = remember();
       const inputs = [0, 1].map((i) => (session.ai[i] ? aiInput(session.ai[i], g) : session.kind === 'training' && i === 1 ? dummyInput() : session.humans[i] ? humanInput(i) : NOIN));
       const ev = tick(g, inputs);
       if (mode === 'fight') { for (const e of ev) onEvent(e); if (session.kind === 'training') trainingTick(ev); }
       else { for (const e of ev) { view.event(e, g); if (e.type === 'matchEnd') demo(); } }
     }
+    if (steps === 4) acc = Math.min(acc, 1 / 60); // after a long hitch, carry on rather than race to catch up
   } else if (g && session && session.kind === 'showcase') { g.frame++; }
   if (mode === 'fight') hud();
   for (let i = 0; i < 2; i++) {
@@ -473,7 +477,9 @@ function frame(now) {
     if (calloutT[i] > 0 && (calloutT[i] -= dt) <= 0) el.s[i].textContent = '';
   }
   if (bannerT > 0 && (bannerT -= dt) <= 0) $('banner').hidden = true;
-  if (g) view.frame(g, dt, { reduced: reduced(), boxes: mode === 'fight' && session.kind === 'training' && train.boxes, showcase: session && session.kind === 'showcase' });
+  // drawn a fraction of a tick behind the simulation, so motion stays even at any frame rate
+  const alpha = running ? clamp(acc * 60, 0, 1) : 1;
+  if (g) view.frame(g, dt, { reduced: reduced(), boxes: mode === 'fight' && session.kind === 'training' && train.boxes, showcase: session && session.kind === 'showcase', prev: running ? prev : null, alpha });
   requestAnimationFrame(frame);
 }
 

@@ -41,6 +41,40 @@ function signTex(lines, bg, fg, w = 120, h = 32) {
     lines.forEach(([text, size, weight = 800], k) => { x.font = `${weight} ${size}px "Baloo 2", system-ui, sans-serif`; x.fillText(text, w / 2, h * (lines.length === 1 ? 0.54 : 0.32 + k * 0.42), w - 6); });
   });
 }
+// Merge every static mesh that shares a material into one, so a stage costs a few dozen draws.
+// Anything under an object marked userData.dynamic keeps moving on its own and is left alone.
+function mergeStatic(root) {
+  root.updateMatrixWorld(true);
+  const buckets = new Map();
+  const walk = (o) => {
+    if (o.userData.dynamic) return;
+    if (o.isMesh && !Array.isArray(o.material)) {
+      const key = `${o.material.uuid}:${o.castShadow}:${o.receiveShadow}`;
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(o);
+    }
+    for (const c of o.children) walk(c);
+  };
+  walk(root);
+  for (const list of buckets.values()) {
+    if (list.length < 2) continue;
+    const parts = list.map((m) => (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()).applyMatrix4(m.matrixWorld));
+    const n = parts.reduce((a, gg) => a + gg.attributes.position.count, 0);
+    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), uv = new Float32Array(n * 2);
+    let at = 0;
+    for (const gg of parts) {
+      pos.set(gg.attributes.position.array, at * 3); nor.set(gg.attributes.normal.array, at * 3);
+      if (gg.attributes.uv) uv.set(gg.attributes.uv.array, at * 2);
+      at += gg.attributes.position.count; gg.dispose();
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    const merged = new THREE.Mesh(geo, list[0].material);
+    merged.castShadow = list[0].castShadow; merged.receiveShadow = list[0].receiveShadow;
+    for (const m of list) m.parent.remove(m);
+    root.add(merged);
+  }
+}
 const signMesh = (tex, w, h, o) => mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8 }), { cast: false, ...o });
 
 // ---------- poses ----------
@@ -176,7 +210,7 @@ function fighterModel(c, scene) {
   if (c.id === 'balut') { const bk = new THREE.Group(); bk.add(mesh(new THREE.CylinderGeometry(0.16, 0.12, 0.16, 10, 1, true), flat('#b8864a', { side: THREE.DoubleSide }), { y: -0.12 })); for (let e = 0; e < 5; e++) bk.add(mesh(new THREE.SphereGeometry(0.045, 6, 5), flat('#f2e6d0'), { x: Math.cos(e * 1.3) * 0.07, y: -0.06, z: Math.sin(e * 1.3) * 0.07 })); bk.add(mesh(new THREE.TorusGeometry(0.12, 0.012, 4, 12, Math.PI), flat('#8a5a2b'), { y: 0.0 })); aL.hand.add(bk); props.push(bk); }
   root.traverse((o) => { if (o.isMesh) { o.castShadow = !o.material.transparent; } });
   scene.add(root);
-  return { root, flip, body, hips, torso, head, aL, aR, lL, lR, props, cigar, LEG, k, pose: structuredClone(STANCE), c };
+  return { root, flip, body, hips, torso, head, aL, aR, lL, lR, props, cigar, LEG, k, pose: structuredClone(STANCE), from: structuredClone(STANCE), key: '', blend: 1, blendTime: 0.1, lastMf: -1, c };
 }
 
 function applyPose(m, p) {
@@ -197,9 +231,10 @@ function mix(a, b, t) {
 }
 
 // The pose a fighter should be in this frame, from the fight state alone.
-function targetPose(f, g, t) {
+function targetPose(f, g, t, sub = 0) {
   const m = f.move;
   if (f.state === 'move' && m) {
+    f = { ...f, mf: clamp(f.mf + sub, 0, m.startup + m.active + m.recovery) };
     const A = ANIMS[m.anim] || JAB, base = m.crouch ? CROUCH : m.air ? POSES.air : STANCE;
     let p;
     if (f.mf <= m.startup) p = mix(base, A.windup, ease(f.mf / Math.max(1, m.startup)));
@@ -226,7 +261,7 @@ function targetPose(f, g, t) {
     case 'hit': return f.crouch ? POSES.hitLow : POSES.hit;
     case 'hitAir': return { ...POSES.hitAir, tilt: clamp(0.5 + (0.1 - f.vy) * 6, 0.5, 1.4) };
     case 'down': return POSES.down;
-    case 'rise': return mix(POSES.down, CROUCH, ease(clamp(f.t / 16, 0, 1)));
+    case 'rise': return mix(POSES.down, CROUCH, ease(clamp((f.t + sub) / 16, 0, 1)));
     case 'ko': return f.y > 0.05 ? { ...POSES.hitAir, tilt: clamp(0.6 + (0.1 - f.vy) * 7, 0.6, 1.5) } : POSES.ko;
     case 'thrown': return { ...POSES.thrown, tilt: 0.5 + Math.sin(t * 20) * 0.1 };
     case 'win': return POSES.win;
@@ -264,7 +299,8 @@ function buildStage(id, scene) {
         for (let r = 0; r < Math.floor(H / 22); r++) for (let q = 0; q < Math.floor(W / 16); q++) { const wx = 4 + q * 16, wy = 6 + r * 22; R(t, '#f2eee4', wx - 1, wy - 1, 11, 11); R(t, rnd() < 0.3 ? '#ffe9a0' : '#34404c', wx, wy, 9, 9); for (let b = wx + 1; b < wx + 9; b += 2) R(t, '#1e1e1e', b, wy, 1, 9); }
         for (let k = 0; k < W; k++) R(t, 'rgba(60,50,40,0.15)', k, H - 2 - Math.floor(rnd() * 3), 1, 4);
       });
-      add(mesh(new THREE.BoxGeometry(w, h, 2), [flat(c), flat(c), flat(c), flat(c), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 }), flat(c)], { x: x + w / 2, y: h / 2, z: z - 1, receive: true }));
+      add(box(w, h, 2, flat(c), { x: x + w / 2, y: h / 2, z: z - 1, receive: true }));
+      add(mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: tex, roughness: 0.95 }), { x: x + w / 2, y: h / 2, z: z + 0.01, cast: false, receive: true }));
       x += w;
     }
   };
@@ -301,13 +337,18 @@ function buildStage(id, scene) {
     ground('#b8864a', (x, w, h) => { for (let k = 0; k < w; k += 8) R(x, shade('#b8864a', 0.9), k, 0, 1, h); R(x, '#f4f1e6', 0, 22, w, 1); R(x, '#f4f1e6', 127, 0, 1, h); for (let a = 0; a < TAU; a += 0.05) R(x, '#f4f1e6', 128 + Math.cos(a) * 20, 38 + Math.sin(a) * 10); });
     // bleachers with the barangay watching, a tarp, and the floodlights
     for (let r = 0; r < 4; r++) add(box(22, 0.4, 0.8, flat(r % 2 ? '#8a8a8a' : '#a0a0a0'), { y: 0.2 + r * 0.45, z: -4.2 - r * 0.8, receive: true }));
-    const crowdC = ['#e8384f', '#ffd23f', '#2f6fd6', '#3fae5a', '#f4f1e6', '#ff8ae2', '#ff9f43'];
-    for (let n = 0; n < 60; n++) {
-      const r = n % 4, x = -10 + ((n * 37) % 200) / 10, p = new THREE.Group();
-      p.add(box(0.36, 0.5, 0.3, flat(pick(crowdC)), { y: 0.25 })); p.add(box(0.22, 0.24, 0.22, flat(pick(['#c98a5a', '#b87a4a', '#d9a06b'])), { y: 0.62 }));
-      p.position.set(x + (rnd() - 0.5) * 0.4, 0.4 + r * 0.45, -4.2 - r * 0.8);
-      p.userData.phase = rnd() * TAU; glows.push({ crowd: p }); add(p);
+    // the barangay watching: sixty people in two instanced meshes, bodies and heads
+    const crowdC = ['#e8384f', '#ffd23f', '#2f6fd6', '#3fae5a', '#f4f1e6', '#ff8ae2', '#ff9f43'], skinC = ['#c98a5a', '#b87a4a', '#d9a06b'];
+    const N = 60, bodies = new THREE.InstancedMesh(new THREE.BoxGeometry(0.36, 0.5, 0.3), flat('#ffffff'), N), heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 0.24, 0.22), flat('#ffffff'), N);
+    const seats = [];
+    for (let n = 0; n < N; n++) {
+      const r = n % 4;
+      seats.push({ x: -10 + ((n * 37) % 200) / 10 + (rnd() - 0.5) * 0.4, y: 0.4 + r * 0.45, z: -4.2 - r * 0.8, phase: rnd() * TAU });
+      bodies.setColorAt(n, new THREE.Color(pick(crowdC))); heads.setColorAt(n, new THREE.Color(pick(skinC)));
     }
+    bodies.castShadow = heads.castShadow = true; bodies.userData.dynamic = heads.userData.dynamic = true;
+    add(bodies, heads);
+    glows.push({ crowd: { bodies, heads, seats } });
     add(signMesh(signTex([['LIGA NG BARANGAY MALINIS', 13], ['ang basketbol ay para sa lahat · 2026', 8, 700]], '#2f5fae', '#ffffff', 200, 36), 7, 1.26, { y: 5.4, z: -7.6 }));
     add(box(24, 0.3, 0.3, flat('#3a3a3a'), { y: 7.2, z: -2 }));
     for (const x of [-8, 8]) { add(mesh(new THREE.CylinderGeometry(0.1, 0.1, 3.6, 8), flat('#3a4a5a'), { x, y: 1.8, z: -2.6 })); add(box(0.08, 1.0, 1.4, flat('#f4f1e6'), { x: x - Math.sign(x) * 0.1, y: 3.5, z: -2.6 })); add(mesh(new THREE.TorusGeometry(0.23, 0.025, 6, 16), flat('#ff6b3d'), { x: x - Math.sign(x) * 0.45, y: 3.1, z: -2.6, rx: Math.PI / 2 })); }
@@ -340,10 +381,11 @@ function buildStage(id, scene) {
     for (let k = 0; k < 10; k++) add(mesh(new THREE.IcosahedronGeometry(2.4 + rnd() * 1.6, 0), flat(pick(['#1f3a1f', '#2a4a24', '#183018'])), { x: (rnd() - 0.5) * 18, y: 11 + rnd() * 3, z: -8 + (rnd() - 0.5) * 4 }));
     for (let k = 0; k < 14; k++) add(mesh(new THREE.IcosahedronGeometry(1 + rnd() * 1.5, 0), flat(pick(['#1f3a1f', '#2a4a24'])), { x: -14 + k * 2.2, y: 0.6, z: -9 - rnd() * 3 }));
     add(mesh(new THREE.SphereGeometry(1.4, 16, 12), new THREE.MeshBasicMaterial({ color: '#f4f0d0', fog: false }), { x: 9, y: 13, z: -30, cast: false })); // the moon
-    for (let k = 0; k < 40; k++) { const fl = mesh(new THREE.SphereGeometry(0.03, 4, 3), new THREE.MeshBasicMaterial({ color: '#d8ff7a' }), { x: (rnd() - 0.5) * 16, y: 0.4 + rnd() * 3, z: -1 - rnd() * 5, cast: false }); fl.userData.phase = rnd() * TAU; glows.push({ fly: fl }); add(fl); }
+    for (let k = 0; k < 40; k++) { const fl = mesh(new THREE.SphereGeometry(0.03, 4, 3), new THREE.MeshBasicMaterial({ color: '#d8ff7a' }), { x: (rnd() - 0.5) * 16, y: 0.4 + rnd() * 3, z: -1 - rnd() * 5, cast: false }); fl.userData.phase = rnd() * TAU; fl.userData.dynamic = true; glows.push({ fly: fl }); add(fl); }
     add(signMesh(signTex([['TABI-TABI PO', 12]], '#6a5a3a', '#f4f1e6', 72, 20), 1.1, 0.3, { x: -5, y: 1.1, z: -2.5, rz: 0.08 }));
     add(box(0.08, 1.0, 0.08, flat('#6b4a2a'), { x: -5, y: 0.5, z: -2.55 }));
   }
+  mergeStatic(group);
   return { group, light, glows };
 }
 
@@ -407,6 +449,7 @@ export function createView(canvas, { low = false } = {}) {
     scene.add(gr);
     return gr;
   }
+  const dummy = new THREE.Object3D();
   // sparks: stars that pop and fade
   const starTex = canvasTex(16, 16, (x) => { const pts = [[8, 0], [10, 6], [16, 8], [10, 10], [8, 16], [6, 10], [0, 8], [6, 6]]; x.fillStyle = '#ffffff'; x.beginPath(); pts.forEach(([a, b], i) => (i ? x.lineTo(a, b) : x.moveTo(a, b))); x.fill(); });
   const sparks = [];
@@ -469,15 +512,29 @@ export function createView(canvas, { low = false } = {}) {
     // fighters
     for (let i = 0; i < 2; i++) {
       const f = g.f[i], m = models[i];
-      let x = f.x, y = f.y;
+      // between the last tick and this one, unless something jumped (a new round, a throw)
+      const pv = o.prev && o.prev.f[i], a = o.alpha ?? 1;
+      const near = pv && Math.abs(pv.x - f.x) < 0.8 && Math.abs(pv.y - f.y) < 0.8;
+      let x = near ? lerp(pv.x, f.x, a) : f.x, y = near ? lerp(pv.y, f.y, a) : f.y;
       if (f.state === 'thrown') { const a = g.f[1 - i]; const held = a.move ? clamp((a.mf - a.grabAt) / 8, 0, 1) : 0; x = lerp(f.x, a.x - a.face * 0.1, held * 0.3); y = held * 0.6; }
       // the one taking the hit shakes during hit-freeze
       if (g.freeze > 0 && (f.state === 'hit' || f.state === 'block' || f.state === 'hitAir') && !o.reduced) x += Math.sin(t * 90) * 0.025;
       m.root.position.set(x, y, 0);
       m.flip.scale.x = f.face; m.flip.rotation.y = -0.32 * f.face;
-      const target = targetPose(f, g, t);
-      const snap = f.state === 'move' || f.state === 'hit' || f.state === 'block' || f.state === 'thrown';
-      m.pose = snap ? target : mix(m.pose, target, Math.min(1, dt * 18));
+      // a new state or a new move crossfades from wherever the body was: quick for attacks and hits,
+      // softer for falling, getting up and the rest
+      const key = f.state === 'move' ? `m${f.mid}` : `${f.state}${f.crouch ? 'c' : ''}`;
+      const restarted = f.state === 'move' && f.mf < m.lastMf;
+      if (key !== m.key || restarted) {
+        m.from = m.pose; m.key = key; m.blend = 0;
+        m.blendTime = f.state === 'move' || f.state === 'hit' || f.state === 'block' ? 0.05 : ['hitAir', 'down', 'ko', 'rise', 'thrown'].includes(f.state) ? 0.12 : 0.09;
+      }
+      m.lastMf = f.state === 'move' ? f.mf : -1;
+      // the body is drawn where it was a fraction of a tick ago, and so are the limbs
+      const target = targetPose(f, g, t, g.freeze > 0 ? 0 : a - 1);
+      m.blend = Math.min(1, m.blend + dt / m.blendTime);
+      const soft = !['move', 'hit', 'block', 'thrown'].includes(f.state); // walking and idling ease into each other
+      m.pose = m.blend < 1 ? mix(m.from, target, ease(m.blend)) : soft ? mix(m.pose, target, Math.min(1, dt * 18)) : target;
       applyPose(m, m.pose);
       // Lakan's thrown stick leaves his hand while it's in the air
       if (m.c.id === 'lakan') m.props[1].visible = !g.projs.some((p) => p.side === i && p.kind === 'baston');
@@ -489,7 +546,9 @@ export function createView(canvas, { low = false } = {}) {
     for (const p of g.projs) {
       let gr = projMeshes.get(p);
       if (!gr) { gr = projMesh(p); projMeshes.set(p, gr); }
-      gr.position.set(p.x, p.def.arc ? p.y : p.kind === 'baston' ? 0.95 : p.kind === 'silaw' ? 0.95 : 0, 0.05);
+      const pp = o.prev && o.prev.p.get(p), a = pp ? o.alpha ?? 1 : 1;
+      const px = pp ? lerp(pp.x, p.x, a) : p.x, py = pp ? lerp(pp.y, p.y, a) : p.y;
+      gr.position.set(px, p.def.arc ? py : p.kind === 'baston' ? 0.95 : p.kind === 'silaw' ? 0.95 : 0, 0.05);
       gr.scale.x = Math.sign(p.vx) || 1;
       if (p.kind === 'baston') gr.rotation.z = -p.t * 0.5 * Math.sign(p.vx);
       if (p.kind === 'balut') gr.rotation.z = p.t * 0.2;
@@ -509,7 +568,16 @@ export function createView(canvas, { low = false } = {}) {
     pGeo.setDrawRange(0, n); pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
     // the stage breathes: the crowd bobs, fireflies drift
     for (const gl of stage.glows) {
-      if (gl.crowd) gl.crowd.position.y += Math.sin(t * 4 + gl.crowd.userData.phase) * 0.002 * (g.phase === 'ko' ? 4 : 1);
+      if (gl.crowd) {
+        // bobbing in their seats, and on their feet for a knockout
+        const { bodies, heads, seats } = gl.crowd, cheer = g.phase === 'ko' ? 1 : 0;
+        seats.forEach((st, n) => {
+          const y = st.y + Math.abs(Math.sin(t * (4 + cheer * 6) + st.phase)) * (0.03 + cheer * 0.12);
+          dummy.position.set(st.x, y + 0.25, st.z); dummy.updateMatrix(); bodies.setMatrixAt(n, dummy.matrix);
+          dummy.position.set(st.x, y + 0.62, st.z); dummy.updateMatrix(); heads.setMatrixAt(n, dummy.matrix);
+        });
+        bodies.instanceMatrix.needsUpdate = true; heads.instanceMatrix.needsUpdate = true;
+      }
       if (gl.fly) { gl.fly.position.x += Math.sin(t * 0.7 + gl.fly.userData.phase) * 0.004; gl.fly.position.y += Math.cos(t * 0.9 + gl.fly.userData.phase) * 0.003; gl.fly.material.color.setScalar(0.5 + 0.5 * Math.sin(t * 3 + gl.fly.userData.phase)); }
     }
     // training: the boxes
