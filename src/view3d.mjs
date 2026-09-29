@@ -183,9 +183,9 @@ export function createView(canvasEl, { low = false, gfx = null } = {}) {
     const tint = f.move && f.move.super ? [1, 0.8, 0.3] : f.move && f.move.special ? [0.55, 0.8, 1] : [1, 0.95, 0.85];
     for (let k = 0; k < TRAIL; k++) {
       const p = tr.pts[Math.min(k, Math.max(0, n - 1))] || tv.set(0, -10, 0), q = tr.pts[Math.min(k + 1, n - 1)] || p;
-      const dx = p.x - q.x, dy = p.y - q.y, len = Math.hypot(dx, dy) || 1, w = 0.07 * (1 - k / TRAIL);
+      const dx = p.x - q.x, dy = p.y - q.y, len = Math.hypot(dx, dy) || 1, w = 0.045 * (1 - k / TRAIL);
       pos.setXYZ(k * 2, p.x - (dy / len) * w, p.y + (dx / len) * w, p.z); pos.setXYZ(k * 2 + 1, p.x + (dy / len) * w, p.y - (dx / len) * w, p.z);
-      const a = (k < n ? (1 - k / TRAIL) ** 1.5 : 0) * tr.on * 0.8;
+      const a = (k < n ? (1 - k / TRAIL) ** 2 : 0) * tr.on * 0.42;
       col.setXYZ(k * 2, tint[0] * a, tint[1] * a, tint[2] * a); col.setXYZ(k * 2 + 1, tint[0] * a, tint[1] * a, tint[2] * a);
     }
     pos.needsUpdate = true; col.needsUpdate = true;
