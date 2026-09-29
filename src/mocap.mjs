@@ -61,12 +61,14 @@ const FALL = { hit: 0.2, floor: 0.44 };
 // How tall each real fighter stands (m): the Kapre towers.
 const HEIGHT = { lakan: 1.74, dalisay: 1.64, tanod: 1.78, balut: 1.7, kapre: 2.45 };
 
-export async function loadMocap(base = 'assets/fighters/') {
+export async function loadMocap(base = 'assets/fighters/', onProgress = null) {
   const res = await fetch(base + 'clips.json');
   if (!res.ok) throw new Error('no mocap');
   const meta = await res.json();
   const loader = new GLTFLoader(), templates = {};
-  await Promise.all(Object.keys(meta.chars).map(async (id) => { templates[id] = (await loader.loadAsync(base + id + '.glb')).scene; }));
+  // each file's bytes so far, for a loading bar
+  const got = {}, tot = {}, report = () => { if (!onProgress) return; const t = Object.values(tot).reduce((a, b) => a + b, 0); if (t) onProgress(Object.values(got).reduce((a, b) => a + b, 0) / t); };
+  await Promise.all(Object.keys(meta.chars).map(async (id) => { templates[id] = (await loader.loadAsync(base + id + '.glb', (e) => { got[id] = e.loaded; if (e.total) tot[id] = e.total; report(); })).scene; }));
   // resolve each slot to a clip name
   const names = Object.keys(meta.clips), slots = {};
   for (const [slot, [pats]] of Object.entries(SLOTS)) { const n = pats.map((p) => names.find((x) => p.test(x))).find(Boolean); if (n) slots[slot] = n; }

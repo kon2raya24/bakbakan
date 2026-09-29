@@ -127,21 +127,31 @@ export function buildStage(id, scene, { low = false } = {}) {
     signBoard(T.sign([['CUBAO · QUIAPO · DIVISORIA', 12]], '#1e6b3e', '#ffffff', { w: 1024, h: 96 }), 6.4, 0.6, { y: 3.9, z: -4.24 });
     signBoard(T.sign([['BAWAL MANIGARILYO', 12]], '#f4f1e6', '#c0182e', { w: 512, h: 96, border: '#c0182e' }), 1.4, 0.26, { x: -7, y: 2.5, z: -4.24 });
     // jeepneys: rounded bodies, chrome, glass, painted sides, in a queue
-    const chrome = std({ color: '#e8ecf0', metalness: 1, roughness: 0.18 }), glass = new THREE.MeshPhysicalMaterial({ color: '#1a222a', roughness: 0.05, metalness: 0.1, clearcoat: 1 }), tyre = std({ color: '#161616', roughness: 0.85 });
+    // car paint with a clear coat, polished chrome and glass: they mirror the real sky once it loads
+    const chrome = std({ color: '#f2f4f6', metalness: 1, roughness: 0.08 }), glass = new THREE.MeshPhysicalMaterial({ color: '#1a222a', roughness: 0.03, metalness: 0.1, clearcoat: 1 }), tyre = std({ color: '#161616', roughness: 0.85 });
+    const paintM = (o) => new THREE.MeshPhysicalMaterial({ roughness: 0.32, metalness: 0.25, clearcoat: 1, clearcoatRoughness: 0.06, ...o });
     const jside = (c, route) => { const cv = T.canvas(1024, 256), x = cv.getContext('2d'); x.fillStyle = c; x.fillRect(0, 0, 1024, 256); const gr = x.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, 'rgba(255,255,255,0.25)'); gr.addColorStop(1, 'rgba(0,0,0,0.2)'); x.fillStyle = gr; x.fillRect(0, 0, 1024, 256); ['#e8384f', '#2f6fd6', '#ffd23f', '#3fae5a'].forEach((cc, k) => { x.fillStyle = cc; x.beginPath(); x.moveTo(0, 150 + k * 16); for (let i = 0; i <= 1024; i += 32) x.lineTo(i, 150 + k * 16 + Math.sin(i / 90 + k) * 6); x.lineTo(1024, 162 + k * 16); x.lineTo(0, 162 + k * 16); x.fill(); }); x.fillStyle = '#c0182e'; x.font = '800 44px "Baloo 2", system-ui'; x.textAlign = 'center'; x.fillText(route, 512, 240); return T.toTex(cv); };
     for (const [x, c, route] of [[-7, '#f2f0ea', 'CUBAO — QUIAPO'], [0.3, '#fff2c8', 'DIVISORIA'], [7.6, '#d8ecf4', 'ESPAÑA — CUBAO']]) {
-      const j = new THREE.Group(), paint = std({ map: jside(c, route), roughness: 0.35, metalness: 0.2 }), body = std({ color: c, roughness: 0.35, metalness: 0.2 });
+      const j = new THREE.Group(), paint = paintM({ map: jside(c, route) }), body = paintM({ color: c });
       j.add(mesh(roundedBox(3.9, 0.85, 1.9, 0.1), paint, { x: -0.25, y: 0.98 })); // the passenger body, painted
       j.add(mesh(roundedBox(3.7, 0.44, 1.78, 0.04), glass, { x: -0.3, y: 1.62 })); // the open windows
       for (let k = 0; k < 7; k++) j.add(mesh(new THREE.BoxGeometry(0.07, 0.46, 1.92), body, { x: -2.05 + k * 0.6, y: 1.62 })); // pillars
-      j.add(mesh(roundedBox(4.3, 0.1, 2.02, 0.04), std({ color: '#c0182e', roughness: 0.4, metalness: 0.3 }), { x: -0.1, y: 1.9 })); // the roof
+      j.add(mesh(roundedBox(4.3, 0.1, 2.02, 0.04), paintM({ color: '#c0182e' }), { x: -0.1, y: 1.9 })); // the roof
       j.add(mesh(new THREE.BoxGeometry(3.6, 0.05, 0.05), chrome, { x: -0.2, y: 2.0, z: 0.9 })); j.add(mesh(new THREE.BoxGeometry(3.6, 0.05, 0.05), chrome, { x: -0.2, y: 2.0, z: -0.9 })); // the roof rails
       j.add(mesh(roundedBox(1.2, 0.62, 1.7, 0.16), chrome, { x: 2.3, y: 0.92 })); // the hood
       j.add(mesh(roundedBox(0.06, 0.52, 1.6, 0.02), glass, { x: 1.72, y: 1.55, rz: -0.25 })); // the windshield
       j.add(mesh(roundedBox(0.08, 0.5, 1.3, 0.03), chrome, { x: 2.92, y: 0.9 })); // the grille
       for (let k = 0; k < 7; k++) j.add(mesh(new THREE.BoxGeometry(0.02, 0.44, 0.02), std({ color: '#2a2a2a' }), { x: 2.97, y: 0.9, z: -0.54 + k * 0.18, cast: false }));
-      for (const sz of [-1, 1]) { j.add(mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.05, 18), std({ color: '#fff8e0', emissive: '#fff2c0', emissiveIntensity: 0.6 }), { x: 2.96, y: 1.08, z: sz * 0.66, rz: Math.PI / 2, cast: false })); j.add(mesh(roundedBox(0.8, 0.08, 0.3, 0.03), chrome, { x: 2.2, y: 0.62, z: sz * 0.92 })); } // lights, fenders
+      for (const sz of [-1, 1]) { j.add(mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.05, 18), std({ color: '#fff8e0', emissive: '#fff2c0', emissiveIntensity: 2.2 }), { x: 2.96, y: 1.08, z: sz * 0.66, rz: Math.PI / 2, cast: false })); j.add(mesh(roundedBox(0.8, 0.08, 0.3, 0.03), chrome, { x: 2.2, y: 0.62, z: sz * 0.92 })); } // lights, fenders
       j.add(mesh(new THREE.ConeGeometry(0.08, 0.32, 12), chrome, { x: 2.6, y: 1.34, rz: -1.2 })); // the chrome horse, more or less
+      for (const sz of [-1, 1]) { // side mirrors on their stalks, and the tail lights
+        j.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.34, 8), chrome, { x: 1.95, y: 1.5, z: sz * 1.02, rx: sz * 0.5 }));
+        j.add(mesh(roundedBox(0.04, 0.2, 0.14, 0.02), chrome, { x: 1.95, y: 1.66, z: sz * 1.12 }));
+        j.add(mesh(roundedBox(0.04, 0.12, 0.2, 0.02), std({ color: '#ff2a1a', emissive: '#ff1a0a', emissiveIntensity: 1.6 }), { x: -2.22, y: 0.92, z: sz * 0.72, cast: false }));
+      }
+      j.add(mesh(new THREE.CylinderGeometry(0.006, 0.008, 1.1, 6), chrome, { x: 1.2, y: 2.5, z: 0.9, cast: false })); // the antenna, and its flag
+      j.add(mesh(new THREE.PlaneGeometry(0.28, 0.17), std({ color: pick(['#e8384f', '#2f6fd6', '#ffd23f']), side: THREE.DoubleSide, roughness: 0.8 }), { x: 1.06, y: 2.95, z: 0.9, ry: 0.3, cast: false }));
+      j.add(mesh(roundedBox(0.9, 0.08, 0.3, 0.02), chrome, { x: -2.5, y: 0.45 })); // the rear step
       for (const [wx, wz] of [[1.9, 0.86], [1.9, -0.86], [-1.4, 0.86], [-1.4, -0.86]]) { j.add(mesh(new THREE.TorusGeometry(0.3, 0.12, 12, 24), tyre, { x: wx, y: 0.42, z: wz })); j.add(mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.05, 18), chrome, { x: wx, y: 0.42, z: wz + Math.sign(wz) * 0.06, rx: Math.PI / 2 })); }
       j.position.set(x, 0, -6.2);
       add(j);

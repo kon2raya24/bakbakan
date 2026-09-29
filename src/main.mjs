@@ -169,17 +169,28 @@ function hud() {
   if (shown.timer !== secs) { shown.timer = secs; el.timer.textContent = secs < 0 ? '∞' : String(secs); el.timer.classList.toggle('low', secs >= 0 && secs <= 10); }
   $('tb-x').style.opacity = g.f[0].meter >= METER.max ? 1 : 0.45;
 }
+// the fighters' portraits beside their health bars
+function faces(a, b) { [a, b].forEach((id, i) => { $(`f${i + 1}`).style.backgroundImage = PORTRAITS[id] ? `url(${PORTRAITS[id]})` : ''; }); }
 function banner(big, small = '', ms = 1200, red = false) {
   const b = $('banner');
   b.innerHTML = '<span></span><small></small>'; b.firstChild.textContent = big; b.lastChild.textContent = small;
-  b.classList.toggle('red', red); b.hidden = false; b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop');
+  b.classList.toggle('red', red); b.hidden = false; b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
   bannerT = ms / 1000;
 }
 function callout(side, text, ms = 900) { const c = el.s[side]; c.textContent = text; c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop'); calloutT[side] = ms / 1000; }
 
+// a controller shakes when its player lands or takes a hit
+function rumble(side, strong, weak, ms) {
+  if (!session || !session.humans[side] || !navigator.getGamepads) return;
+  const pad = [...navigator.getGamepads()].filter(Boolean)[side];
+  if (pad && pad.vibrationActuator) pad.vibrationActuator.playEffect('dual-rumble', { duration: ms, strongMagnitude: strong, weakMagnitude: weak }).catch(() => {});
+}
 function onEvent(e) {
   view.event(e, g);
   A.event(e, g);
+  if (e.type === 'hit') { const k = e.super ? 1 : e.heavy ? 0.7 : 0.35; rumble(e.side, k * 0.5, k, 90 + k * 120); rumble(1 - e.side, k, k * 0.6, 120 + k * 160); }
+  else if (e.type === 'ko') { rumble(0, 1, 1, 450); rumble(1, 1, 1, 450); }
+  else if (e.type === 'block') rumble(1 - e.side, 0.15, 0.35, 70);
   switch (e.type) {
     case 'round': banner(e.final ? 'HULING ROUND' : `ROUND ${e.n}`, e.final ? 'Final round' : '', 1500); break;
     case 'fight': banner('LABAN!', 'Fight!', 700); break;
@@ -214,6 +225,7 @@ function beginFight() {
   A.music(s.stage); A.setFight([s.p1, s.p2], s.stage); walked[0] = walked[1] = 0;
   shown.hp = [-1, -1]; shown.wins = ''; shown.meter = [-1, -1]; shown.timer = -1;
   for (let i = 0; i < 2; i++) { el.n[i].textContent = `${byId(i ? s.p2 : s.p1).name}${s.humans[i] ? '' : ' · CPU'}`; el.c[i].textContent = ''; el.s[i].textContent = ''; }
+  faces(s.p1, s.p2);
   $('train').hidden = s.kind !== 'training';
   if (s.kind === 'training') { g.phase = 'fight'; g.phaseT = 0; train.combo = 0; train.dmg = 0; trainPanel(); }
   mode = 'fight'; acc = 0; slow = 0; keys.clear();
@@ -302,7 +314,7 @@ function ladder() {
   $('ladder-title').textContent = boss ? `Huling laban: ang ${byId(opp).name}!` : `Laban ${s.step + 1}: ${byId(opp).name}`;
   $('ladder-list').innerHTML = s.ladder.map((id, i) => `<span class="${i < s.step ? 'done' : i === s.step ? 'now' : ''}">${byId(id).name}</span>`).join('');
   $('ladder-quote').textContent = `${stageName(s.stage)} · “${QUOTES[opp].taunt}”`;
-  g = createMatch({ p1: s.p1, p2: opp, stage: s.stage }); view.setStage(s.stage); A.music(s.stage); A.setFight([s.p1, opp], s.stage);
+  g = createMatch({ p1: s.p1, p2: opp, stage: s.stage }); view.setStage(s.stage); A.music(s.stage); A.setFight([s.p1, opp], s.stage); faces(s.p1, opp);
   show('ladder');
 }
 
@@ -503,11 +515,17 @@ async function boot() {
   }
   try { Object.assign(PORTRAITS, view.portraits(ROSTER)); } catch { /* keep the drawn ones */ }
   // the real, motion-captured fighters load in the background; the handmade ones fill in until then
-  loadMocap(Q.get('mocap') || 'assets/fighters/').then((lib) => {
+  // a bar while the real fighters download; gone once they're in (or if they aren't deployed here)
+  const bar = $('loading'), pct = $('load-pct');
+  const loaded = (f) => { bar.hidden = false; pct.textContent = `${Math.round(f * 100)}%`; bar.style.setProperty('--p', `${Math.round(f * 100)}%`); };
+  const doneLoading = () => { bar.classList.add('done'); setTimeout(() => { bar.hidden = true; }, 700); };
+  loadMocap(Q.get('mocap') || 'assets/fighters/', loaded).then((lib) => {
+    doneLoading();
     view.setMocap(lib);
     try { Object.assign(PORTRAITS, view.portraits(ROSTER)); } catch { /* keep what we have */ }
     if (mode === 'select') renderSelect();
-  }).catch(() => { /* not deployed here: the handmade fighters it is */ });
+    if (session && session.kind !== 'demo') faces(session.p1, g ? g.f[1].id : session.p2);
+  }).catch(() => { doneLoading(); /* not deployed here: the handmade fighters it is */ });
   loadCrowd(Q.get('mocap') || 'assets/fighters/').then((c) => view.setCrowd(c)).catch(() => { /* the painted crowd stays */ });
   loadEnv(Q.get('env') || 'assets/env/').then((e) => view.setEnv(e)).catch(() => { /* the painted stages stay */ });
   window.addEventListener('resize', () => view.resize());

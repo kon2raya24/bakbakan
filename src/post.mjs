@@ -18,9 +18,9 @@ export const GRADE = {
 };
 
 const Grade = {
-  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, contrast: { value: 1 }, sat: { value: 1 }, tint: { value: new THREE.Vector3(1, 1, 1) }, vig: { value: 0.4 }, grain: { value: 0.035 }, split: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, contrast: { value: 1 }, sat: { value: 1 }, tint: { value: new THREE.Vector3(1, 1, 1) }, vig: { value: 0.4 }, grain: { value: 0.035 }, split: { value: 0 }, flash: { value: 0 } },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float time, contrast, sat, vig, grain, split; uniform vec3 tint; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float time, contrast, sat, vig, grain, split, flash; uniform vec3 tint; varying vec2 vUv;
     float rnd(vec2 c){ return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453); }
     void main(){
       vec2 d = vUv - 0.5;
@@ -31,6 +31,7 @@ const Grade = {
       c = mix(vec3(l), c, sat) * tint;
       c *= mix(1.0, smoothstep(0.95, 0.2, length(d * vec2(1.25, 1.0))), vig);
       c += (rnd(vUv * 731.0 + fract(time) * 17.0) - 0.5) * grain;
+      c = mix(c, vec3(1.0), flash * 0.55);
       gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
     }`,
 };
@@ -70,7 +71,7 @@ export function createPost(renderer, scene, camera, { level = 2, auto = true } =
   }
   // slow frames: step down once the average stays under ~40 fps for a few seconds
   let avg = 1 / 60, slowT = 0, last = 0, grace = 6; // loading and shader compiles hitch at first: give it a few seconds
-  function render(dt, { split = 0, bloomBoost = 0 } = {}) {
+  function render(dt, { split = 0, bloomBoost = 0, flash = 0 } = {}) {
     // real time between frames (the game's dt is capped, so it can't tell how slow things are)
     const t = performance.now() / 1000, real = last ? Math.min(1, t - last) : 1 / 60; last = t;
     avg = avg * 0.9 + real * 0.1;
@@ -78,7 +79,7 @@ export function createPost(renderer, scene, camera, { level = 2, auto = true } =
     if (auto && slowT > 4 && lvl > 0) { lvl--; slowT = 0; grace = 3; build(); }
     if (!composer) { renderer.render(scene, camera); return; }
     grade.uniforms.time.value = performance.now() / 1000;
-    grade.uniforms.split.value = split;
+    grade.uniforms.split.value = split; grade.uniforms.flash.value = flash;
     const G = GRADE[stageId] || GRADE.terminal;
     bloom.strength = G[4] + bloomBoost;
     composer.render(dt);
