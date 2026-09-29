@@ -1,10 +1,11 @@
 <!doctype html><meta charset="utf-8"><body><script type="module">
 // Mixamo to Bakbakan: characters to GLB, animations to one compact clips file. Run by convert-run.mjs.
 import * as THREE from '../src/vendor/three.module.min.js';
-import { FBXLoader, GLTFExporter, GLTFLoader } from './three-convert.js';
+import { FBXLoader, GLTFExporter, GLTFLoader, mergeVertices } from './three-convert.js';
 
 const job = await (await fetch(new URLSearchParams(location.search).get('job'))).json();
 const canon = (n) => n.replace(/^mixamorig\d*[:_]?/i, '');
+const vcount = (o) => { let n = 0; o.traverse((x) => { if (x.isMesh) n += x.geometry.attributes.position.count; }); return n; };
 const load = (url) => url.toLowerCase().endsWith('.glb') ? new GLTFLoader().loadAsync(url).then((r) => { r.scene.animations = r.animations; return r.scene; }) : new FBXLoader().loadAsync(url);
 const findBone = (obj, name) => { let b = null; obj.traverse((o) => { if (!b && o.isBone && canon(o.name) === name) b = o; }); return b; };
 const result = { chars: {}, clips: {}, log: [] };
@@ -14,7 +15,24 @@ for (const ch of job.chars) {
   const obj = await load(job.dir + ch.file);
   const isFbx = !ch.file.toLowerCase().endsWith('.glb');
   obj.animations = [];
-  obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; for (const m of [].concat(o.material)) { if (m.map) m.map.colorSpace = THREE.SRGBColorSpace; } } });
+  // embedded textures decode in the background: wait for every image first
+  const pending = [];
+  obj.traverse((o) => { if (o.isMesh) for (const m of [].concat(o.material)) for (const k of Object.keys(m)) { const t = m[k]; if (t && t.isTexture && t.image && t.image.decode && !t.image.complete) pending.push(t.image.decode().catch(() => {})); } });
+  await Promise.all(pending);
+  await new Promise((r) => setTimeout(r, 200));
+  // drop textures the file names but doesn't carry, and note what each material has
+  const SLOTS = ['map', 'normalMap', 'specularMap', 'emissiveMap', 'alphaMap', 'bumpMap', 'aoMap', 'lightMap', 'roughnessMap', 'metalnessMap', 'displacementMap'];
+  const matLog = [];
+  obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; for (const m of [].concat(o.material)) { for (const k of SLOTS) { const t = m[k]; if (t && !(t.image && (t.image.width > 0 || t.image.data))) { m[k] = null; matLog.push(`${m.name}: no ${k}`); } } if (m.map) m.map.colorSpace = THREE.SRGBColorSpace; matLog.push(`${m.name}: ${m.type} map=${!!m.map} normal=${!!m.normalMap} color=#${m.color.getHexString()}`); } } });
+  result.log.push(`${ch.id} materials: ${[...new Set(matLog)].join(' | ')}`);
+  // weld the vertices the loader split per triangle, and store colour and normal maps as JPEG
+  obj.traverse((o) => {
+    if (!o.isMesh) return;
+    const g = o.geometry;
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv', 'skinIndex', 'skinWeight'].includes(k)) g.deleteAttribute(k);
+    const welded = mergeVertices(g, 1e-4); welded.groups = g.groups; o.geometry = welded;
+    for (const m of [].concat(o.material)) for (const k of ['map', 'normalMap']) if (m[k] && !m.alphaMap && !(m.transparent && k === 'map')) m[k].userData.mimeType = 'image/jpeg';
+  });
   const root = new THREE.Group(); root.name = 'fighter'; root.add(obj);
   if (isFbx) obj.scale.setScalar(0.01); // Mixamo FBX is in centimetres
   root.updateMatrixWorld(true);
@@ -23,7 +41,7 @@ for (const ch of job.chars) {
   const glb = await new GLTFExporter().parseAsync(root, { binary: true, maxTextureSize: job.maxTexture || 1024, onlyVisible: true });
   const bytes = new Uint8Array(glb); let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   result.chars[ch.id] = { glb: btoa(bin), height: +box.max.y.toFixed(3), hipY: +hp.y.toFixed(3), size: bytes.length };
-  result.log.push(`${ch.id}: ${(bytes.length / 1e6).toFixed(1)} MB, height ${box.max.y.toFixed(2)} m`);
+  result.log.push(`${ch.id}: ${(bytes.length / 1e6).toFixed(1)} MB, ${vcount(root)} vertices, height ${box.max.y.toFixed(2)} m`);
 }
 
 // ---------- animations ----------

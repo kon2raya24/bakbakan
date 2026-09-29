@@ -55,6 +55,9 @@ const MOVES = {
   slide: { slot: 'sweep', eff: 'foot' }, hammer: { slot: 'meleeD' }, smoke: { slot: 'taunt' }, stomp: { slot: 'meleeD' },
 };
 
+// How tall each real fighter stands (m): the Kapre towers.
+const HEIGHT = { lakan: 1.74, dalisay: 1.64, tanod: 1.78, balut: 1.7, kapre: 2.45 };
+
 export async function loadMocap(base = 'assets/fighters/') {
   const res = await fetch(base + 'clips.json');
   if (!res.ok) throw new Error('no mocap');
@@ -95,7 +98,7 @@ export function mocapFighter(lib, c, scene) {
   const meta = lib.meta.chars[c.id], model = cloneSkinned(lib.templates[c.id]);
   const root = new THREE.Group(), turn = new THREE.Group();
   root.add(turn); turn.add(model);
-  model.scale.multiplyScalar((1.76 * c.build) / meta.height);
+  model.scale.multiplyScalar((HEIGHT[c.id] || 1.76 * c.build) / meta.height);
   const bones = {};
   model.traverse((o) => { if (o.isBone) bones[canon(o.name)] = o; if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; } });
   const hipRest = bones.Hips.position.y;
@@ -107,17 +110,34 @@ export function mocapFighter(lib, c, scene) {
     if (!actions.has(key)) { const a = mixer.clipAction(part === 'upper' ? upper[name] : part === 'lower' ? lower[name] : out[name]); a.play(); a.paused = true; a.setEffectiveWeight(0); a.enabled = true; a.userData = { part }; actions.set(key, a); }
     return actions.get(key);
   };
-  // props in their hands
+  // props in their hands. A Mixamo hand bone runs along the fingers (+Y), with X across the fist (the
+  // right hand's +X is its thumb side, the left hand's -X) and +Z toward the palm. A mount undoes the
+  // bone's scale, so props are placed in metres.
   const props = [];
   const ws = new THREE.Vector3();
-  const inHand = (bone, obj) => { bone.updateWorldMatrix(true, false); bone.getWorldScale(ws); obj.scale.divideScalar(ws.x); bone.add(obj); props.push(obj); return obj; };
+  const mount = (bone, obj) => { bone.updateWorldMatrix(true, false); bone.getWorldScale(ws); const g = new THREE.Group(); g.scale.setScalar(1 / ws.x); g.add(obj); bone.add(g); props.push(g); return g; };
   const rt = rattan(), stickM = new THREE.MeshStandardMaterial({ map: rt.map, normalMap: rt.normalMap, roughness: 0.6 });
-  const stick = (len, mat, r = 0.014) => { const g = new THREE.Group(), m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.05, len, 12), mat); m.castShadow = true; m.position.y = len * 0.3; m.rotation.x = Math.PI / 2; g.add(m); g.position.set(0, 0.07, 0.02); return g; };
-  if (c.id === 'lakan') { inHand(bones.RightHand, stick(0.72, stickM)); inHand(bones.LeftHand, stick(0.72, stickM)); }
-  if (c.id === 'tanod') inHand(bones.RightHand, stick(0.6, new THREE.MeshStandardMaterial({ color: '#141416', roughness: 0.45 }), 0.018));
-  if (c.id === 'balut') { const w = weave(), bk = new THREE.Group(), wm = new THREE.MeshStandardMaterial({ map: w.map, normalMap: w.normalMap, roughness: 0.85, side: THREE.DoubleSide }); const b = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.12, 0.17, 18, 1, true), wm); b.position.y = -0.14; bk.add(b); const egg = new THREE.MeshPhysicalMaterial({ color: '#efe2c8', roughness: 0.45 }); for (let e = 0; e < 7; e++) { const s = new THREE.Mesh(new THREE.SphereGeometry(0.038, 12, 9), egg); s.position.set(Math.cos(e * 0.9) * 0.08, -0.09, Math.sin(e * 0.9) * 0.08); s.scale.y = 1.3; bk.add(s); } bk.position.set(0, 0.1, 0); inHand(bones.LeftHand, bk); }
+  // a stick through the fist, most of it out past the thumb
+  const stick = (len, mat, thumb, r = 0.014) => { const g = new THREE.Group(), m = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.05, len, 12), mat); m.castShadow = true; m.rotation.z = -Math.PI / 2; m.position.x = thumb * len * 0.32; g.add(m); g.position.set(0, 0.075, 0.025); g.rotation.y = thumb * 0.15; return g; };
+  if (c.id === 'lakan') { mount(bones.RightHand, stick(0.72, stickM, 1)); mount(bones.LeftHand, stick(0.72, stickM, -1)); }
+  if (c.id === 'tanod') mount(bones.RightHand, stick(0.6, new THREE.MeshStandardMaterial({ color: '#141416', roughness: 0.45 }), 1, 0.018));
+  if (c.id === 'balut') {
+    // the basket hangs from its handle in his fist
+    const w = weave(), bk = new THREE.Group(), wm = new THREE.MeshStandardMaterial({ map: w.map, normalMap: w.normalMap, roughness: 0.85, side: THREE.DoubleSide });
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.12, 0.17, 18, 1, true), wm); b.position.y = -0.2; bk.add(b);
+    const bottom = new THREE.Mesh(new THREE.CircleGeometry(0.12, 18), wm); bottom.rotation.x = -Math.PI / 2; bottom.position.y = -0.285; bk.add(bottom);
+    const handle = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.008, 6, 16, Math.PI), wm); handle.position.y = -0.115; bk.add(handle);
+    const egg = new THREE.MeshPhysicalMaterial({ color: '#efe2c8', roughness: 0.45 }); for (let e = 0; e < 7; e++) { const sEgg = new THREE.Mesh(new THREE.SphereGeometry(0.038, 12, 9), egg); sEgg.position.set(Math.cos(e * 0.9) * 0.08, -0.15, Math.sin(e * 0.9) * 0.08); sEgg.scale.y = 1.3; bk.add(sEgg); }
+    bk.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    bk.position.set(0, 0.07, 0.03);
+    mount(bones.LeftHand, bk).userData.hang = true;
+  }
   let cigar = null;
-  if (c.id === 'kapre' && bones.Head) { cigar = new THREE.Group(); const cm = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.13, 10), new THREE.MeshStandardMaterial({ color: '#6a4228', roughness: 0.8 })); cm.rotation.x = Math.PI / 2; cm.position.z = 0.07; cigar.add(cm); const em = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 6), new THREE.MeshStandardMaterial({ color: '#ff6a2a', emissive: '#ff4a0a', emissiveIntensity: 3 })); em.position.z = 0.135; cigar.add(em); cigar.position.set(0, 0.02, 0.1); inHand(bones.Head, cigar); }
+  if (c.id === 'kapre' && bones.Head) {
+    const cg = new THREE.Group(), cm = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.15, 10), new THREE.MeshStandardMaterial({ color: '#6a4228', roughness: 0.8 })); cm.rotation.x = Math.PI / 2; cm.position.z = 0.075; cg.add(cm);
+    const em = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 6), new THREE.MeshStandardMaterial({ color: '#ff6a2a', emissive: '#ff4a0a', emissiveIntensity: 3 })); em.position.z = 0.155; cg.add(em);
+    cg.position.set(0, 0.05, 0.12); cigar = mount(bones.Head, cg);
+  }
   scene.add(root);
   return { mocap: true, root, turn, model, mixer, bones, action, layers: [], props, cigar, c, yaw: null, kick: { lean: 0, lv: 0, head: 0, hv: 0 }, stateKey: '', stateT: 0, loopT: 0 };
 }
@@ -206,5 +226,17 @@ export function driveMocap(m, f, g, lib, dt, sub, reduced) {
     m.model.updateMatrixWorld(true);
     const bend = (bone, ang) => { if (!bone) return; const pq = new THREE.Quaternion(); bone.parent.getWorldQuaternion(pq); const wq = new THREE.Quaternion(); bone.getWorldQuaternion(wq); const r = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), ang * f.face); bone.quaternion.copy(pq.invert().multiply(r.multiply(wq))); };
     bend(m.bones.Spine1, K.lean * 0.6); bend(m.bones.Spine2, K.lean * 0.4); bend(m.bones.Head, K.head);
+  }
+  // a basket hangs from the fist whatever the wrist does, and swings when the hand moves
+  for (const pr of m.props) {
+    if (!pr.userData.hang) continue;
+    m.model.updateMatrixWorld(true);
+    const wp = pr.getWorldPosition(new THREE.Vector3()), u = pr.userData;
+    const vx = u.px === undefined ? 0 : (wp.x - u.px) / Math.max(dt, 1e-3), ax = u.pv === undefined ? 0 : (vx - u.pv) / Math.max(dt, 1e-3);
+    u.px = wp.x; u.pv = vx; u.th = u.th || 0; u.om = u.om || 0;
+    u.om += (-40 * u.th - 4 * u.om - clamp(ax, -40, 40) * 5) * dt; u.th = clamp(u.th + u.om * dt, -0.9, 0.9);
+    const pq = new THREE.Quaternion(); pr.parent.getWorldQuaternion(pq);
+    const want = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, u.th, 'YXZ'));
+    pr.quaternion.copy(pq.invert().multiply(want));
   }
 }

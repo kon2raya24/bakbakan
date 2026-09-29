@@ -48,8 +48,9 @@ The Kapre is the last fight in Arcade. Beat him once and you can pick him in Arc
   - combo scaling, chip damage, the super meter, the round clock, and best-of-three rounds
 - **The fighters:** `src/roster.mjs` holds every fighter as data, including every move's frame data.
 - **The CPU:** `src/ai.mjs` holds the CPU, with its reaction delay and its plans.
-- **The 3D:** [three.js](https://threejs.org), bundled into `src/vendor/` so the game works offline, with no model or image files. Everything is built and painted in code when the game loads.
-  - `src/fighters3d.mjs` builds each fighter to realistic proportions, about seven and a half heads tall, on a jointed rig:
+- **The 3D:** [three.js](https://threejs.org), bundled into `src/vendor/` so the game works offline. The stages, and the fallback fighters, are built and painted in code when the game loads.
+  - `src/mocap.mjs` plays the real fighters on bakbakan.vercel.app: rigged Mixamo characters with motion capture, one clip for every state and move. Each strike is time-warped so the fist or foot lands on the move's active frames, and props (the baston, the batuta, the balut basket, the Kapre's cigar) ride on the hand and head bones. Mixamo's files can't be handed out, so they aren't in this repo. `tools/README.md` covers converting them.
+  - Wherever the real fighters aren't deployed, `src/fighters3d.mjs` builds its own. It builds each fighter to realistic proportions, about seven and a half heads tall, on a jointed rig:
     - smooth turned limbs and hands
     - a head sculpted from a sphere (skull, brow, eye sockets, cheekbones, nose, lips, jaw) with a painted face
     - hair with a soft hairline, skin with a soft sheen, cloth with a weave, rattan sticks, a woven basket
