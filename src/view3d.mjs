@@ -3,7 +3,7 @@
 // hits, projectiles and supers. It reads the match (fight.mjs) and never changes it.
 import * as THREE from './vendor/three.module.min.js';
 import { hurtbox, hitbox, pbox, PHYS } from './fight.mjs';
-import { fighterModel, applyPose, targetPose, mix, STANCE } from './fighters3d.mjs';
+import { fighterModel, applyPose, animate, impulse, targetPose, mix, STANCE } from './fighters3d.mjs';
 import { buildStage } from './stages3d.mjs';
 import { canvas, toTex, rattan } from './tex.mjs';
 
@@ -131,15 +131,18 @@ export function createView(canvasEl, { low = false } = {}) {
   function event(e, g) {
     switch (e.type) {
       case 'hit': {
-        const big = e.super ? 1.3 : e.heavy ? 1.0 : 0.65;
+        const big = e.super ? 1.3 : e.heavy ? 1.0 : 0.65, d = models[1 - e.side];
+        // the one hit is shoved: head snapped back, body bent away, a little twist
+        if (d) impulse(d, { lean: -(e.heavy ? 9 : 5), head: -(e.heavy ? 18 : 11), twist: (Math.random() - 0.5) * 8, roll: (Math.random() - 0.5) * 5 });
+        if (models[e.side]) impulse(models[e.side], { lean: e.heavy ? 2.5 : 1.2 }); // and the one hitting leans into it
         spark(e.x, e.y, e.counter ? '#ff7a6a' : '#fff0c8', big);
         spark(e.x, e.y, e.counter ? '#ff5c5c' : '#ffc070', big * 1.1, 0.14, streakTex);
         emit(e.x, e.y, 0.2, e.heavy ? '#ffb060' : '#ffe0a0', e.heavy ? 18 : 10, 3.5, 3, 0.35);
         cam.shake = Math.max(cam.shake, e.super ? 0.1 : e.heavy ? 0.06 : 0.025);
         break;
       }
-      case 'block': spark(e.x, e.y, '#9fd8ff', e.heavy ? 0.7 : 0.5, 0.15); emit(e.x, e.y, 0.2, '#cfe8ff', 8, 2.5, 2, 0.25); break;
-      case 'throw': cam.shake = 0.08; emit(e.x, 0.1, 0.2, '#d8c8a8', 14, 2, 1.5, 0.5, 6); break;
+      case 'block': spark(e.x, e.y, '#9fd8ff', e.heavy ? 0.7 : 0.5, 0.15); emit(e.x, e.y, 0.2, '#cfe8ff', 8, 2.5, 2, 0.25); if (models[1 - e.side]) impulse(models[1 - e.side], { lean: -(e.heavy ? 3.5 : 2), head: -3 }); break;
+      case 'throw': if (models[1 - e.side]) impulse(models[1 - e.side], { head: -14, lean: -6 }); cam.shake = 0.08; emit(e.x, 0.1, 0.2, '#d8c8a8', 14, 2, 1.5, 0.5, 6); break;
       case 'tech': spark(e.x, 1.2, '#ffffff', 0.8, 0.2, streakTex); break;
       case 'clash': spark(e.x, e.y + 1, '#ffffff', 1.1, 0.25, streakTex); emit(e.x, e.y + 1, 0.2, '#ffd23f', 14, 3, 2, 0.4); break;
       case 'down': emit(e.x, 0.05, 0.2, stageId === 'balete' ? '#6a5a3a' : '#bab2a4', 16, 2.2, 1.2, 0.5, 6); cam.shake = Math.max(cam.shake, 0.04); break;
@@ -176,10 +179,12 @@ export function createView(canvasEl, { low = false } = {}) {
       m.lastMf = f.state === 'move' ? f.mf : -1;
       const target = targetPose(f, g, t, g.freeze > 0 ? 0 : a - 1);
       m.blend = Math.min(1, m.blend + dt / m.blendTime);
-      const soft = !['move', 'hit', 'block', 'thrown'].includes(f.state);
-      m.pose = m.blend < 1 ? mix(m.from, target, ease(m.blend)) : soft ? mix(m.pose, target, Math.min(1, dt * 18)) : target;
+      m.pose = m.blend < 1 ? mix(m.from, target, ease(m.blend)) : target;
       m.breath = f.state === 'stand' || f.state === 'crouch' || f.state === 'win' ? Math.sin(t * 2.4 + i * 1.7) : 0;
-      applyPose(m, m.pose);
+      // eyes on the other fighter: looking up at a jumper, or at the Kapre
+      const o2 = g.f[1 - i], look = clamp(Math.atan2((o2.y + 1.55 * o2.c.build) - (y + 1.55 * f.c.build), Math.max(0.6, Math.abs(o2.x - f.x))) * 0.7, -0.35, 0.45);
+      const planted = f.y <= 0.001 && !['hitAir', 'ko', 'down', 'rise', 'thrown'].includes(f.state) && Math.abs(m.pose.tilt) < 0.2 && m.pose.lift < 0.05;
+      animate(m, m.pose, dt, { attacking: f.state === 'move', ik: planted && (f.state === 'move' ? 'near' : 'all'), look: ['down', 'ko', 'rise'].includes(f.state) ? 0 : look, face: f.face });
       if (m.c.id === 'lakan') m.props[1].visible = !g.projs.some((p) => p.side === i && p.kind === 'baston');
       if (m.cigar && Math.random() < dt * 3) { const wp = new THREE.Vector3(); m.cigar.getWorldPosition(wp); emit(wp.x + 0.15 * f.face, wp.y + 0.05, wp.z, '#6a6a64', 1, 0.15, 0.5, 1.4, -0.3); }
     }

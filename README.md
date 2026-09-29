@@ -54,6 +54,14 @@ The Kapre is the last fight in Arcade. Beat him once and you can pick him in Arc
     - a head sculpted from a sphere (skull, brow, eye sockets, cheekbones, nose, lips, jaw) with a painted face
     - hair with a soft hairline, skin with a soft sheen, cloth with a weave, rattan sticks, a woven basket
     - each fighter's own girth: the Kapre is burly and hairy
+  - The motion:
+    - every joint follows its pose on a slightly springy spring, so attacks snap out and settle, and the spine and head follow through
+    - the spine bends in two places and the neck in one
+    - feet stay planted through two-bone leg IK, with the knees spread in a crouch
+    - the stance bounces to each fighter's own rhythm, and the walk swings the arms and sways the hips
+    - heads look up at jumpers
+    - hits shove the body back by how hard they land
+    - ponytails, headband tails, the sash, the Kapre's mane and beard, the bahag and the balut basket swing as pendulums
   - `src/tex.mjs` paints the textures: fabric, skin, faces, hair, asphalt, planks, concrete, bark and building fronts. Each has a normal map made from its own heights, so light catches the weave, the grain and the cracks.
   - `src/stages3d.mjs` builds the four stages:
     - rounded props and building fronts with glass that reflects the sky
