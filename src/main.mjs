@@ -5,6 +5,8 @@ import { createAI, aiInput, LEVELS } from './ai.mjs';
 import { ROSTER, STAGES, byId } from './roster.mjs';
 import { createView } from './view3d.mjs';
 import { loadMocap } from './mocap.mjs';
+import { loadCrowd } from './crowd.mjs';
+import { loadEnv } from './envpack.mjs';
 import { createAudio } from './audio.mjs';
 
 const Q = new URLSearchParams(location.search);
@@ -197,13 +199,19 @@ function onEvent(e) {
   }
 }
 
+// footsteps on the stage's floor, one for every half metre walked
+const walked = [0, 0];
+function footsteps() {
+  for (let i = 0; i < 2; i++) { const f = g.f[i]; if (f.state !== 'stand' || f.y > 0 || !f.vx) continue; walked[i] += Math.abs(f.vx); if (walked[i] > 0.5) { walked[i] = 0; A.step(); } }
+}
+
 // ---------- sessions ----------
 function beginFight() {
   const s = session;
   g = createMatch({ p1: s.p1, p2: s.p2, stage: s.stage, seed: seed() });
   s.ai = [0, 1].map((i) => (s.humans[i] ? null : createAI(i, s.levels[i], seed() + i)));
   view.setStage(s.stage);
-  A.music(s.stage);
+  A.music(s.stage); A.setFight([s.p1, s.p2], s.stage); walked[0] = walked[1] = 0;
   shown.hp = [-1, -1]; shown.wins = ''; shown.meter = [-1, -1]; shown.timer = -1;
   for (let i = 0; i < 2; i++) { el.n[i].textContent = `${byId(i ? s.p2 : s.p1).name}${s.humans[i] ? '' : ' · CPU'}`; el.c[i].textContent = ''; el.s[i].textContent = ''; }
   $('train').hidden = s.kind !== 'training';
@@ -228,7 +236,7 @@ function demo() {
   g = createMatch({ p1, p2, stage: session.stage, seed: seed() });
   session.ai = [createAI(0, 'katamtaman', seed()), createAI(1, 'katamtaman', seed() + 1)];
   view.setStage(session.stage);
-  A.music('title');
+  A.music('title'); A.ambience(session.stage);
 }
 
 function finish(winner) {
@@ -236,6 +244,7 @@ function finish(winner) {
   const s = session;
   if (s.kind === 'demo') { demo(); return; }
   mode = 'result';
+  A.say(winner === null ? 'tie' : s.humans[0] && s.humans[1] ? 'winner' : s.humans[winner] ? 'you_win' : 'you_lose');
   const wid = winner === null ? null : winner === 0 ? s.p1 : s.p2;
   const quote = wid ? QUOTES[wid].win[Math.floor(Math.random() * 3)] : 'Walang nanalo. Isa pa!';
   const buttons = [];
@@ -293,7 +302,7 @@ function ladder() {
   $('ladder-title').textContent = boss ? `Huling laban: ang ${byId(opp).name}!` : `Laban ${s.step + 1}: ${byId(opp).name}`;
   $('ladder-list').innerHTML = s.ladder.map((id, i) => `<span class="${i < s.step ? 'done' : i === s.step ? 'now' : ''}">${byId(id).name}</span>`).join('');
   $('ladder-quote').textContent = `${stageName(s.stage)} · “${QUOTES[opp].taunt}”`;
-  g = createMatch({ p1: s.p1, p2: opp, stage: s.stage }); view.setStage(s.stage); A.music(s.stage);
+  g = createMatch({ p1: s.p1, p2: opp, stage: s.stage }); view.setStage(s.stage); A.music(s.stage); A.setFight([s.p1, opp], s.stage);
   show('ladder');
 }
 
@@ -302,7 +311,7 @@ const sel = { kind: 'arcade', cur: [0, 1], picked: [false, false], cpu2: true, s
 // whose cursor moves: in arcade only yours; otherwise you pick yourself, then your opponent
 const chooser = () => (sel.kind !== 'arcade' && sel.picked[0] ? 1 : 0);
 function openSelect(kind) {
-  A.start();
+  A.start(); setTimeout(() => A.say('choose_your_character'), 250);
   Object.assign(sel, { kind, picked: [false, false], cur: [0, 1] });
   mode = 'select';
   $('select-title').textContent = kind === 'arcade' ? 'Arcade: pumili ng manlalaban' : kind === 'versus' ? 'Versus: pumili ng manlalaban' : 'Ensayo: ikaw at ang kalaban';
@@ -467,7 +476,7 @@ function frame(now) {
       prev = remember();
       const inputs = [0, 1].map((i) => (session.ai[i] ? aiInput(session.ai[i], g) : session.kind === 'training' && i === 1 ? dummyInput() : session.humans[i] ? humanInput(i) : NOIN));
       const ev = tick(g, inputs);
-      if (mode === 'fight') { for (const e of ev) onEvent(e); if (session.kind === 'training') trainingTick(ev); }
+      if (mode === 'fight') { for (const e of ev) onEvent(e); if (session.kind === 'training') trainingTick(ev); footsteps(); }
       else { for (const e of ev) { view.event(e, g); if (e.type === 'matchEnd') demo(); } }
     }
     if (steps === 4) acc = Math.min(acc, 1 / 60); // after a long hitch, carry on rather than race to catch up
@@ -486,7 +495,7 @@ function frame(now) {
 
 async function boot() {
   try { await Promise.race([document.fonts.load('800 20px "Baloo 2"'), new Promise((r) => setTimeout(r, 1500))]); } catch { /* system fonts then */ }
-  try { view = createView($('view'), { low: touch }); }
+  try { view = createView($('view'), { low: touch, gfx: Q.get('gfx') }); }
   catch {
     $('title').innerHTML = '<h1 class="logo">BAKBAKAN<br>SA KANTO</h1><p class="muted">This game needs 3D (WebGL), which this browser could not start. Try Chrome, Edge, Safari or Firefox, or turn on hardware acceleration.</p>';
     show('title');
@@ -499,6 +508,8 @@ async function boot() {
     try { Object.assign(PORTRAITS, view.portraits(ROSTER)); } catch { /* keep what we have */ }
     if (mode === 'select') renderSelect();
   }).catch(() => { /* not deployed here: the handmade fighters it is */ });
+  loadCrowd(Q.get('mocap') || 'assets/fighters/').then((c) => view.setCrowd(c)).catch(() => { /* the painted crowd stays */ });
+  loadEnv(Q.get('env') || 'assets/env/').then((e) => view.setEnv(e)).catch(() => { /* the painted stages stay */ });
   window.addEventListener('resize', () => view.resize());
   new ResizeObserver(() => view.resize()).observe($('view'));
   toTitle();

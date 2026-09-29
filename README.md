@@ -49,7 +49,14 @@ The Kapre is the last fight in Arcade. Beat him once and you can pick him in Arc
 - **The fighters:** `src/roster.mjs` holds every fighter as data, including every move's frame data.
 - **The CPU:** `src/ai.mjs` holds the CPU, with its reaction delay and its plans.
 - **The 3D:** [three.js](https://threejs.org), bundled into `src/vendor/` so the game works offline. The stages, and the fallback fighters, are built and painted in code when the game loads.
-  - `src/mocap.mjs` plays the real fighters on bakbakan.vercel.app: rigged Mixamo characters with motion capture, one clip for every state and move. Each strike is time-warped so the fist or foot lands on the move's active frames, and props (the baston, the batuta, the balut basket, the Kapre's cigar) ride on the hand and head bones. Mixamo's files can't be handed out, so they aren't in this repo. `tools/README.md` covers converting them.
+  - `src/mocap.mjs` plays the real fighters on bakbakan.vercel.app: rigged Mixamo characters with motion capture, one clip for every state and move. Each strike is time-warped so the fist or foot lands on the move's active frames, and props (the baston, the batuta, the balut basket) ride on the hand bones. Mixamo's files can't be handed out, so they aren't in this repo. `tools/README.md` covers converting them.
+  - `src/crowd.mjs` fills the court's bleachers with real people (five Mixamo characters). Each is frozen in a few poses (sitting and clapping, cheering, standing), drawn instanced, clapping at their own pace and on their feet for a super or a knockout.
+  - `src/envpack.mjs` dresses each stage with CC0 scans from [Poly Haven](https://polyhaven.com):
+    - a photographed sky that lights and reflects everything
+    - scanned asphalt, pavement, court boards, concrete, hollow blocks, planks, bark and forest floor
+    - real props: monobloc chairs, plastic crates, LPG tanks, roller shutters, aircon units, the officials' table with its boombox and megaphone, heaps of real fruit, roots, ferns, mossy stones and grass
+  - `src/post.mjs` gives it the film look: ambient occlusion, bloom, a filmic tone map, a grade for each stage with a vignette and grain, a colour split on the heaviest hits, and SMAA. It steps down by itself on slow devices; `?gfx=0|1|2` fixes the level.
+  - The real fighters, the crowd and the stage scans ship only in the Vercel deploy (Mixamo's terms, and size). `tools/README.md` covers building them.
   - Wherever the real fighters aren't deployed, `src/fighters3d.mjs` builds its own. It builds each fighter to realistic proportions, about seven and a half heads tall, on a jointed rig:
     - smooth turned limbs and hands
     - a head sculpted from a sphere (skull, brow, eye sockets, cheekbones, nose, lips, jaw) with a painted face
@@ -69,7 +76,10 @@ The Kapre is the last fight in Arcade. Beat him once and you can pick him in Arc
     - a glossy court floor and a wet palengke floor
     - a gnarled balete with hanging roots
   - `src/view3d.mjs` handles filmic tone mapping and reflections from each stage's own sky. It adds a key light, a rim light, and the hit sparks, projectiles and supers. It also renders 3D portraits for the select screen.
-- **Sound:** all synthesized with Web Audio, including a little loop for each stage.
+- **Sound:** Web Audio.
+  - Real recordings (CC0, from [Kenney](https://kenney.nl)) for punches, kicks, sticks, falls and footsteps, and an announcer for the rounds, "Fight!", "Time" and the result.
+  - Synthesized sound underneath: the weight of each hit, whooshes, projectiles, the super, and each stage's air (the crowd cheering and roaring, the city, the market, crickets).
+  - A little loop for each stage.
 
 Tests (Node 20+): `node --test test/*.test.mjs`.
 - The engine: hits, the three guards, chains and cancels, motions and shortcuts, projectiles, throws and breaking them, knockdowns, the juggle limit, counter hits, chip, the super, walls, rounds, time-up, and exact replays.

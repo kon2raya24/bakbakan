@@ -55,6 +55,9 @@ const MOVES = {
   slide: { slot: 'sweep', eff: 'foot' }, hammer: { slot: 'meleeD' }, smoke: { slot: 'taunt' }, stomp: { slot: 'meleeD' },
 };
 
+// Where Falling Back Death is knocked off its feet, and where it hits the floor (fractions).
+const FALL = { hit: 0.2, floor: 0.44 };
+
 // How tall each real fighter stands (m): the Kapre towers.
 const HEIGHT = { lakan: 1.74, dalisay: 1.64, tanod: 1.78, balut: 1.7, kapre: 2.45 };
 
@@ -132,14 +135,8 @@ export function mocapFighter(lib, c, scene) {
     bk.position.set(0, 0.07, 0.03);
     mount(bones.LeftHand, bk).userData.hang = true;
   }
-  let cigar = null;
-  if (c.id === 'kapre' && bones.Head) {
-    const cg = new THREE.Group(), cm = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.15, 10), new THREE.MeshStandardMaterial({ color: '#6a4228', roughness: 0.8 })); cm.rotation.x = Math.PI / 2; cm.position.z = 0.075; cg.add(cm);
-    const em = new THREE.Mesh(new THREE.SphereGeometry(0.016, 8, 6), new THREE.MeshStandardMaterial({ color: '#ff6a2a', emissive: '#ff4a0a', emissiveIntensity: 3 })); em.position.z = 0.155; cg.add(em);
-    cg.position.set(0, 0.05, 0.12); cigar = mount(bones.Head, cg);
-  }
   scene.add(root);
-  return { mocap: true, root, turn, model, mixer, bones, action, layers: [], props, cigar, c, yaw: null, kick: { lean: 0, lv: 0, head: 0, hv: 0 }, stateKey: '', stateT: 0, loopT: 0 };
+  return { mocap: true, root, turn, model, mixer, bones, action, layers: [], props, c, yaw: null, kick: { lean: 0, lv: 0, head: 0, hv: 0 }, stateKey: '', stateT: 0, loopT: 0 };
 }
 
 // A shove to the spine and head from a hit, sprung back over the next few frames.
@@ -172,6 +169,9 @@ function plan(m, f, g, lib, sub) {
     return { base: strike };
   }
   const JUMP = { up: 0.35, down: 0.72 };
+  // knocked into the air: the fall follows the flight, thrown back going up and flat on the way down,
+  // so it lands on its back however long the flight (or the knockout's slow motion) lasts
+  const fly = () => ({ base: at('fall', FALL.hit + (FALL.floor - FALL.hit) * clamp(0.5 - f.vy / 0.2, 0, 1)) });
   switch (f.state) {
     case 'crouch': return { base: loop('crouch') };
     case 'block': return { base: f.crouch ? at('crouchBlock', 0.4) : at('block', 0.35) };
@@ -179,10 +179,11 @@ function plan(m, f, g, lib, sub) {
     case 'air': { const p = clamp(0.5 - f.vy / 0.27, 0, 1); return { base: at('jump', JUMP.up + (JUMP.down - JUMP.up) * p) }; }
     case 'land': return { base: at('jump', JUMP.down + clamp(st / 0.05, 0, 1) * 0.15) };
     case 'hit': return { base: at(f.crouch ? 'hitBody' : 'hitHead', clamp(st * 1.6 / D(f.crouch ? 'hitBody' : 'hitHead'), 0, 0.75)) };
-    case 'hitAir': case 'thrown': return { base: at('fall', clamp(st * 1.3 / D('fall'), 0, 0.6)) };
-    case 'down': return st < 0.25 ? { base: at('fall', 0.6 + st * 1.6) } : { base: at('getUp', 0.2 + (st - 0.25) * 0.6) };
+    case 'hitAir': return fly();
+    case 'thrown': return { base: at('fall', clamp(st * 1.3 / D('fall'), 0, 0.6)) };
+    case 'down': return st < 0.25 ? { base: at('fall', FALL.floor + st * 0.8) } : { base: at('getUp', 0.2 + (st - 0.25) * 0.6) };
     case 'rise': return { base: at('getUp', 0.47 + clamp(st / 0.27, 0, 1) * 0.53) };
-    case 'ko': return f.y > 0.05 ? { base: at('fall', clamp(st * 1.3 / D('fall'), 0, 0.6)) } : { base: at('ko', Math.min(1, 0.55 + st * 0.5)) };
+    case 'ko': if (f.y > 0 || f.vy > 0) { m.landed = st; return fly(); } return { base: at('fall', Math.min(1, FALL.floor + (st - (m.landed || 0)) * 0.3)) };
     case 'win': return { base: at('win', Math.min(1, st / D('win'))) };
     default: {
       if (g.phase === 'intro' && g.phaseT > 30) return { base: at('taunt', Math.min(1, st / D('taunt'))) };
@@ -195,9 +196,11 @@ function plan(m, f, g, lib, sub) {
 // Pose a mocap fighter for this frame: crossfade to what the state wants, place and turn it, shove it.
 export function driveMocap(m, f, g, lib, dt, sub, reduced) {
   const key = f.state === 'move' ? `m${f.mid}` : `${f.state}${f.crouch ? 'c' : ''}`;
-  if (key !== m.stateKey) { m.stateKey = key; m.stateT = 0; } else if (g.freeze <= 0) m.stateT += dt;
+  if (key !== m.stateKey) { m.stateKey = key; m.stateT = 0; m.landed = 0; } else if (g.freeze <= 0) m.stateT += dt;
   if (g.freeze <= 0) m.loopT += dt;
   const want = plan(m, f, g, lib, g.freeze > 0 ? 0 : sub);
+  // a knockout falls rather than floats: the clip carries the drop, the flight only a little hop
+  if (f.state === 'ko' && (f.y > 0 || f.vy > 0)) m.root.position.y *= 0.3;
   // layers: a full-body clip and maybe an upper-body one on top; each fades in, the old ones out
   const wanted = want.upper
     ? [[m.action(lib.slots[want.base.slot], 'lower'), want.base.t], [m.action(lib.slots[want.upper.slot], 'upper'), want.upper.t]]

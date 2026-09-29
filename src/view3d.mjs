@@ -6,6 +6,9 @@ import { hurtbox, hitbox, pbox, PHYS } from './fight.mjs';
 import { fighterModel, applyPose, animate, impulse, targetPose, mix, STANCE } from './fighters3d.mjs';
 import { buildStage } from './stages3d.mjs';
 import { mocapFighter, driveMocap, mocapImpulse, hasMocap } from './mocap.mjs';
+import { buildCrowd } from './crowd.mjs';
+import { createPost } from './post.mjs';
+import { dress } from './envpack.mjs';
 import { canvas, toTex, rattan } from './tex.mjs';
 
 const TAU = Math.PI * 2;
@@ -14,7 +17,7 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const ease = (t) => t * t * (3 - 2 * t);
 const glowTex = (stops) => { const cv = canvas(128, 128), x = cv.getContext('2d'), g = x.createRadialGradient(64, 64, 0, 64, 64, 64); for (const [o, c] of stops) g.addColorStop(o, c); x.fillStyle = g; x.fillRect(0, 0, 128, 128); return toTex(cv); };
 
-export function createView(canvasEl, { low = false } = {}) {
+export function createView(canvasEl, { low = false, gfx = null } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas: canvasEl, antialias: !low, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, low ? 1.25 : 2));
   renderer.shadowMap.enabled = true;
@@ -25,6 +28,7 @@ export function createView(canvasEl, { low = false } = {}) {
   scene.fog = new THREE.Fog('#dce9f2', 20, 70);
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 300);
   scene.add(camera);
+  const fixed = gfx !== null && gfx !== '', post = createPost(renderer, scene, camera, { level: fixed ? +gfx : low ? 1 : 2, auto: !fixed });
   // light: a key sun with soft shadows, a rim from behind to pull the fighters off the background,
   // the sky and ground bounce, and a fill that follows the fight on the dark stages
   const hemi = new THREE.HemisphereLight('#e4f1ff', '#8a7a64', 0.5);
@@ -49,15 +53,16 @@ export function createView(canvasEl, { low = false } = {}) {
     for (const c of L.cards || []) { const d = new THREE.Vector3(...c.dir).normalize().multiplyScalar(8), m = new THREE.Mesh(new THREE.SphereGeometry(c.size * 8, 16, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(c.color).multiplyScalar(c.power) })); m.position.copy(d); s.add(m); }
     if (envRT) envRT.dispose();
     envRT = pmrem.fromScene(s, 0.02);
-    scene.environment = envRT.texture;
+    scene.environment = envRT.texture; scene.environmentIntensity = 1; scene.environmentRotation.set(0, 0, 0);
     s.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
   }
 
   let stage = null, stageId = null;
   function setStage(id) {
     if (id === stageId) return;
-    if (stage) { scene.remove(stage.group); stage.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
+    if (stage) { scene.remove(stage.group); stage.group.traverse((o) => { if (o.geometry && !o.userData.shared) o.geometry.dispose(); }); }
     stage = buildStage(id, scene, { low }); stageId = id;
+    seatCrowd(); post.setStage(id); dressStage();
     const L = stage.light;
     hemi.color.set(L.hemi[0]); hemi.groundColor.set(L.hemi[1]); hemi.intensity = L.hemi[2];
     sun.color.set(L.sun[0]); sun.intensity = L.sun[1];
@@ -67,6 +72,28 @@ export function createView(canvasEl, { low = false } = {}) {
     renderer.toneMappingExposure = L.exposure;
     fill.color.set(L.fill[0]); fill.intensity = L.fill[1];
     makeEnv(L);
+  }
+
+  // the real surroundings (scanned materials, props and sky), once they've loaded
+  let env = null, dressing = 0;
+  function dressStage() {
+    if (!env || !stage) return;
+    const token = ++dressing, st = stage;
+    dress(env, stageId, st, { pmrem, current: () => token === dressing && stage === st, setEnvironment(tex, power, turn) { scene.environment = tex; scene.environmentIntensity = power; scene.environmentRotation.set(0, turn, 0); } }).catch(() => { /* the painted stage stays */ });
+  }
+
+  // the real crowd, once it has loaded, takes the painted one's seats
+  let crowdLib = null;
+  function seatCrowd() {
+    const gl = stage && stage.glows.find((x) => x.crowd);
+    if (!gl || !crowdLib || gl.crowd.real) return;
+    let r = 7; const rand = () => ((r = (r * 16807) % 2147483647) / 2147483647);
+    const seats = gl.crowd.seats.map((st) => { const row = Math.round((st.y - 0.42) / 0.45); return { x: st.x, y: st.y, z: st.z + 0.04, stand: rand() < (row === 3 ? 0.45 : 0.08) }; });
+    const real = buildCrowd(crowdLib, seats, rand);
+    real.group.traverse((o) => { o.userData.shared = true; });
+    stage.group.add(real.group);
+    gl.crowd.bodies.visible = gl.crowd.heads.visible = false;
+    gl.crowd.real = real;
   }
 
   // ---------- fighters, projectiles and effects ----------
@@ -130,12 +157,13 @@ export function createView(canvasEl, { low = false } = {}) {
   boxLines.renderOrder = 9; boxLines.frustumCulled = false; scene.add(boxLines);
   const dummy = new THREE.Object3D();
 
-  const cam = { x: 0, y: 1.5, z: 7, shake: 0, flash: 0, flashSide: 0, slow: 0 };
+  const cam = { x: 0, y: 1.5, z: 7, shake: 0, flash: 0, flashSide: 0, slow: 0, hype: 0, split: 0 };
   function resize() {
     const r = canvasEl.getBoundingClientRect();
     renderer.setSize(Math.max(1, r.width), Math.max(1, r.height), false);
     camera.aspect = Math.max(0.3, r.width / Math.max(1, r.height));
     camera.updateProjectionMatrix();
+    post.resize();
   }
 
   function event(e, g) {
@@ -149,6 +177,8 @@ export function createView(canvasEl, { low = false } = {}) {
         spark(e.x, e.y, e.counter ? '#ff5c5c' : '#ffc070', big * 1.1, 0.14, streakTex);
         emit(e.x, e.y, 0.2, e.heavy ? '#ffb060' : '#ffe0a0', e.heavy ? 18 : 10, 3.5, 3, 0.35);
         cam.shake = Math.max(cam.shake, e.super ? 0.1 : e.heavy ? 0.06 : 0.025);
+        if (e.super) cam.hype = 1.6; // the crowd is on its feet
+        if (e.heavy || e.super) cam.split = e.super ? 1 : 0.6;
         break;
       }
       case 'block': spark(e.x, e.y, '#9fd8ff', e.heavy ? 0.7 : 0.5, 0.15); emit(e.x, e.y, 0.2, '#cfe8ff', 8, 2.5, 2, 0.25); shove(models[1 - e.side], e.heavy, 'block'); break;
@@ -231,8 +261,9 @@ export function createView(canvasEl, { low = false } = {}) {
     pGeo.setDrawRange(0, n); pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
     // the stage breathes: the crowd, fireflies, candle flames
     for (const gl of stage.glows) {
-      if (gl.crowd) {
-        const { bodies, heads, seats, bodyY, headY } = gl.crowd, cheer = g.phase === 'ko' ? 1 : 0;
+      if (gl.crowd && gl.crowd.real) gl.crowd.real.update(t, g.phase === 'ko' || cam.hype > 0 ? 1 : 0);
+      else if (gl.crowd) {
+        const { bodies, heads, seats, bodyY, headY } = gl.crowd, cheer = g.phase === 'ko' || cam.hype > 0 ? 1 : 0;
         seats.forEach((st, k) => {
           const yy = st.y + Math.abs(Math.sin(t * (3 + cheer * 6) + st.phase)) * (0.02 + cheer * 0.12);
           dummy.position.set(st.x, yy + bodyY, st.z); dummy.rotation.set(0, 0, Math.sin(t + st.phase) * 0.05); dummy.updateMatrix(); bodies.setMatrixAt(k, dummy.matrix);
@@ -266,7 +297,7 @@ export function createView(canvasEl, { low = false } = {}) {
     const shake = o.reduced ? 0 : cam.shake;
     camera.position.set(cam.x + (Math.random() - 0.5) * shake, cam.y + 0.4 + (Math.random() - 0.5) * shake, cam.z);
     camera.lookAt(cam.x, cam.y - 0.05, 0);
-    cam.shake = Math.max(0, cam.shake - dt * 0.6);
+    cam.shake = Math.max(0, cam.shake - dt * 0.6); cam.hype = Math.max(0, cam.hype - dt);
     cam.flash = g.freeze > 0 && cam.flash > 0 ? cam.flash : Math.max(0, cam.flash - dt * 3);
     dim.material.opacity = cam.flash * 0.6;
     burst.material.opacity = cam.flash * 0.9;
@@ -276,7 +307,8 @@ export function createView(canvasEl, { low = false } = {}) {
     fill.position.set(cam.x, 2.6, 2.4);
     sun.target.position.set(cam.x, 0, 0); sun.position.set(cam.x + L.sun[2][0], L.sun[2][1], L.sun[2][2]);
     rim.target.position.set(cam.x, 1, 0); rim.position.set(cam.x - 2, 5, -7);
-    renderer.render(scene, camera);
+    cam.split = Math.max(0, cam.split - dt * 5);
+    post.render(dt, { split: o.reduced ? 0 : cam.split, bloomBoost: cam.flash * 0.5 });
   }
 
   // Head-and-shoulders portraits of each fighter, for the select screen.
@@ -313,5 +345,5 @@ export function createView(canvasEl, { low = false } = {}) {
   }
 
   resize();
-  return { frame, event, resize, setStage, portraits, setMocap(lib) { mocap = lib; }, get mocap() { return mocap; }, renderer, get stage() { return stageId; }, cam };
+  return { frame, event, resize, setStage, portraits, setMocap(lib) { mocap = lib; }, setCrowd(lib) { crowdLib = lib; seatCrowd(); }, setEnv(e) { env = e; dressStage(); }, get mocap() { return mocap; }, renderer, post, get stage() { return stageId; }, cam };
 }

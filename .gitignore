@@ -2,3 +2,4 @@
 .scratch
 # Mixamo characters and animations: shipped inside the game on Vercel, not handed out in the repo
 assets/fighters/
+assets/env/
