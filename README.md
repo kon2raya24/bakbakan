@@ -2,7 +2,7 @@
 
 A street fighting game, Pinoy style, in 3D. Two fighters on a Filipino street: the jeepney terminal in Cubao, a barangay covered court at night, the palengke in Divisoria, and, at the end of the arcade ladder, the balete tree where the Kapre lives.
 
-**Play:** https://bakbakan-sa-kanto.vercel.app
+**Play:** https://bakbakan.vercel.app
 
 ## The fighters
 
