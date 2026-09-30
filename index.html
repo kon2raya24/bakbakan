@@ -100,6 +100,7 @@ button[aria-pressed=true] { background: linear-gradient(180deg, #ff7a6a, #c0182e
 #fade { position: absolute; inset: 0; background: #000; pointer-events: none; opacity: 0; }
 #fade.go { animation: fadeblk .7s ease-out both; }
 @keyframes fadeblk { 0% { opacity: 1; } 100% { opacity: 0; } }
+#settings .card { display: grid; gap: 6px; } #settings .muted { margin: 4px 0 0; } #settings input[type=range] { width: 180px; vertical-align: middle; accent-color: #ffd23f; }
 #train { position: absolute; left: 12px; top: 90px; background: rgba(20,14,24,.72); border-radius: 10px; padding: 6px 10px; font-size: 13px; line-height: 1.35; }
 /* touch */
 #pad { position: absolute; left: 18px; bottom: calc(max(18px, env(safe-area-inset-bottom)) + 26px); width: 140px; height: 140px; border-radius: 50%; background: rgba(255,255,255,.1); border: 2px solid rgba(255,255,255,.3); pointer-events: auto; display: none; }
@@ -190,7 +191,7 @@ body.fighting .help { display: none; }
       <button type="button" data-diff="katamtaman">Katamtaman</button>
       <button type="button" data-diff="mahirap">Mahirap</button>
     </div>
-    <div class="row"><button type="button" id="how-btn">Paano · How to play</button><button type="button" class="sound"></button></div>
+    <div class="row"><button type="button" id="how-btn">Paano · How to play</button><button type="button" class="settings-btn">Ayos · Settings</button><button type="button" class="sound"></button></div>
     <p class="muted" id="title-best"></p>
     <p class="muted">🎮 PlayStation or any controller · keyboard (two players can share) · touch</p>
   </section>
@@ -234,9 +235,10 @@ body.fighting .help { display: none; }
   <section class="screen" id="pause" hidden>
     <h2>Hinto · Paused</h2>
     <div class="card info" id="pause-moves"></div>
-    <div class="row"><button type="button" class="primary" id="resume">Tuloy · Resume</button><button type="button" class="sound"></button><button type="button" class="menu">Menu</button></div>
+    <div class="row"><button type="button" class="primary" id="resume">Tuloy · Resume</button><button type="button" class="settings-btn">Ayos</button><button type="button" class="sound"></button><button type="button" class="menu">Menu</button></div>
   </section>
 
+  <section class="screen" id="settings" hidden><h2>Ayos · Settings</h2><div class="card" id="settings-body"></div><div class="row"><button type="button" class="primary" id="settings-ok">Tapos · Done</button></div></section>
   <section class="screen" id="vs" hidden aria-live="polite"><div class="half p1"><img alt="" id="vs-i1"><b id="vs-n1"></b><span id="vs-t1"></span></div><div class="half p2"><img alt="" id="vs-i2"><b id="vs-n2"></b><span id="vs-t2"></span></div><div class="mid">VS</div><div class="where" id="vs-where"></div></section>
   <section class="screen" id="result" hidden>
     <img alt="" id="result-face" class="winner" hidden>

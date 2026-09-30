@@ -36,7 +36,8 @@ const Grade = {
     }`,
 };
 
-export function createPost(renderer, scene, camera, { level = 2, auto = true } = {}) {
+export function createPost(renderer, scene, camera, { level = 2, auto: auto0 = true } = {}) {
+  let auto = auto0;
   let composer = null, gtao = null, bloom = null, grade = null, smaa = null, lvl = level;
   const size = new THREE.Vector2();
   function build() {
@@ -84,7 +85,8 @@ export function createPost(renderer, scene, camera, { level = 2, auto = true } =
     bloom.strength = G[4] + bloomBoost;
     composer.render(dt);
   }
+  function setAuto(b) { auto = b; }
   function resize() { if (!composer) return; renderer.getSize(size); composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(size.x, size.y); }
   build();
-  return { render, resize, setStage, get level() { return lvl; }, setLevel(n) { lvl = n; build(); } };
+  return { render, resize, setStage, setAuto, get level() { return lvl; }, setLevel(n) { lvl = n; build(); } };
 }

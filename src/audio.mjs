@@ -20,14 +20,15 @@ const SCALES = {
 export function createAudio({ base = 'assets/sfx/' } = {}) {
   let ctx = null, master = null, sfx = null, mus = null, amb = null, noiseBuf = null, muted = false;
   const buf = {}; let fighters = ['', ''], stage = 'terminal', ambience = null, ambId = null;
+  const mix = { music: 1, sfx: 1, voice: true }; // the player's settings
   let song = null, timer = null, step = 0, nextT = 0;
 
   function start() {
     if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
     try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch { return; }
     master = ctx.createGain(); master.gain.value = muted ? 0 : 0.8; master.connect(ctx.destination);
-    sfx = ctx.createGain(); sfx.gain.value = 0.9; sfx.connect(master);
-    mus = ctx.createGain(); mus.gain.value = 0.28; mus.connect(master);
+    sfx = ctx.createGain(); sfx.gain.value = 0.9 * mix.sfx; sfx.connect(master);
+    mus = ctx.createGain(); mus.gain.value = 0.28 * mix.music; mus.connect(master);
     amb = ctx.createGain(); amb.gain.value = 0.5; amb.connect(master);
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0);
@@ -51,7 +52,7 @@ export function createAudio({ base = 'assets/sfx/' } = {}) {
     g.gain.value = gain; s.connect(g); g.connect(out); s.start(now() + at);
     return true;
   }
-  const say = (line, at = 0) => play('v_' + line, { gain: 1.1, vary: 0, at });
+  const say = (line, at = 0) => mix.voice && play('v_' + line, { gain: 1.1, vary: 0, at });
 
   // ---------- each stage's air ----------
   function loopNoise(freq, q, gain, type = 'bandpass') {
@@ -207,5 +208,6 @@ export function createAudio({ base = 'assets/sfx/' } = {}) {
     step: (gain = 0.35) => play(FLOOR[stage], { gain, vary: 0.12 }),
     music: (id) => { if (id === song) return; if (id) playSong(id); else stopSong(); },
     setMuted(m) { muted = m; if (master) master.gain.value = m ? 0 : 0.8; },
+    setMix(m) { Object.assign(mix, m); if (sfx) sfx.gain.value = 0.9 * mix.sfx; if (mus) mus.gain.value = 0.28 * mix.music; if (amb) amb.gain.value = 0.5 * mix.sfx; },
   };
 }

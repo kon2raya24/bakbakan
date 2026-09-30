@@ -21,9 +21,11 @@ const saved = store.get() || {};
 const data = {
   diff: LEVELS[saved.diff] ? saved.diff : 'madali', muted: !!saved.muted, how: !!saved.how, unlocked: !!saved.unlocked,
   best: saved.best && typeof saved.best === 'object' ? saved.best : {},
+  // the player's settings: graphics (auto or a fixed level), music and effects volume, the announcer, camera motion
+  opt: { gfx: 'auto', music: 1, sfx: 1, voice: true, calm: false, ...(saved.opt || {}) },
 };
 const persist = () => store.set(data);
-const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const reduced = () => data.opt.calm || matchMedia('(prefers-reduced-motion: reduce)').matches;
 const $ = (id) => document.getElementById(id);
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const seed = () => (TEST && Q.get('seed') ? Number(Q.get('seed')) : Math.floor(Math.random() * 1e9));
@@ -66,12 +68,12 @@ const PORTRAITS = Object.fromEntries(ROSTER.map((c) => [c.id, portrait(c)]));
 
 let view = null;
 const A = createAudio();
-A.setMuted(data.muted);
+A.setMuted(data.muted); A.setMix(data.opt);
 let mode = 'title', g = null, session = null, acc = 0, slow = 0, prev = null;
 // Where everything was one tick ago, so frames can be drawn between ticks.
 const remember = () => ({ f: g.f.map((f) => ({ x: f.x, y: f.y })), p: new Map(g.projs.map((p) => [p, { x: p.x, y: p.y }])) });
 
-const SCREENS = ['vs', 'title', 'how', 'select', 'ladder', 'pause', 'result'];
+const SCREENS = ['settings', 'vs', 'title', 'how', 'select', 'ladder', 'pause', 'result'];
 function show(name) {
   for (const id of SCREENS) $(id).hidden = id !== name;
   document.body.classList.toggle('fighting', name === null || name === 'pause');
@@ -450,6 +452,25 @@ function trainingTick(ev) {
 }
 
 // ---------- menus ----------
+// ---------- settings ----------
+const GFX = [['auto', 'Auto'], [2, 'Mataas · High'], [1, 'Katamtaman · Medium'], [0, 'Mababa · Low']];
+function applyGfx() { if (!view) return; if (data.opt.gfx === 'auto') { view.post.setAuto(true); if (view.post.level !== (touch ? 1 : 2)) view.post.setLevel(touch ? 1 : 2); } else { view.post.setAuto(false); view.post.setLevel(data.opt.gfx); } }
+let settingsBack = 'title';
+function openSettings(from) {
+  settingsBack = from; mode = 'settings';
+  const seg = (key, list) => list.map(([v, label]) => `<button type="button" data-k="${key}" data-v="${v}" aria-pressed="${String(data.opt[key]) === String(v)}">${label}</button>`).join('');
+  $('settings-body').innerHTML = `
+    <p class="muted">Graphics</p><div class="row">${seg('gfx', GFX)}</div>
+    <p class="muted">Musika · Music <input type="range" min="0" max="1" step="0.05" value="${data.opt.music}" data-k="music" aria-label="Music volume"></p>
+    <p class="muted">Tunog · Effects <input type="range" min="0" max="1" step="0.05" value="${data.opt.sfx}" data-k="sfx" aria-label="Effects volume"></p>
+    <p class="muted">Announcer</p><div class="row">${seg('voice', [[true, 'Bukas · On'], [false, 'Patay · Off']])}</div>
+    <p class="muted">Galaw ng camera · Camera motion</p><div class="row">${seg('calm', [[false, 'Buo · Full'], [true, 'Kalmado · Reduced']])}</div>`;
+  for (const b of $('settings-body').querySelectorAll('button')) b.onclick = () => { const k = b.dataset.k, v = b.dataset.v; data.opt[k] = k === 'gfx' ? (v === 'auto' ? 'auto' : +v) : v === 'true'; persist(); A.setMix(data.opt); if (k === 'gfx') applyGfx(); openSettings(settingsBack); };
+  for (const r of $('settings-body').querySelectorAll('input[type=range]')) r.oninput = () => { data.opt[r.dataset.k] = +r.value; A.start(); A.setMix(data.opt); persist(); };
+  show('settings');
+}
+$('settings-ok').onclick = () => { if (settingsBack === 'pause') { mode = 'pause'; show('pause'); } else toTitle(); };
+for (const b of document.querySelectorAll('.settings-btn')) b.onclick = () => openSettings(mode === 'pause' ? 'pause' : 'title');
 function toggleSound() { A.start(); data.muted = !data.muted; A.setMuted(data.muted); persist(); labels(); }
 function labels() {
   for (const b of document.querySelectorAll('.sound')) { b.textContent = data.muted ? '🔇' : '🔊'; b.setAttribute('aria-label', data.muted ? 'Sound off, turn it on' : 'Sound on, turn it off'); }
@@ -533,7 +554,7 @@ function frame(now) {
 
 async function boot() {
   try { await Promise.race([document.fonts.load('800 20px "Baloo 2"'), new Promise((r) => setTimeout(r, 1500))]); } catch { /* system fonts then */ }
-  try { view = createView($('view'), { low: touch, gfx: Q.get('gfx') }); }
+  try { view = createView($('view'), { low: touch, gfx: Q.get('gfx') ?? (data.opt.gfx === 'auto' ? null : String(data.opt.gfx)) }); }
   catch {
     $('title').innerHTML = '<h1 class="logo">BAKBAKAN<br>SA KANTO</h1><p class="muted">This game needs 3D (WebGL), which this browser could not start. Try Chrome, Edge, Safari or Firefox, or turn on hardware acceleration.</p>';
     show('title');
