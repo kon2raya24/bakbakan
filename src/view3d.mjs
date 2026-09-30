@@ -391,13 +391,15 @@ export function createView(canvasEl, { low = false, gfx = null } = {}) {
   }
 
   // Head-and-shoulders portraits of each fighter, for the select screen.
-  function portraits(roster) {
-    const out = {}, S = 192, rt = new THREE.WebGLRenderTarget(S, S), ps = new THREE.Scene(), pc = new THREE.PerspectiveCamera(24, 1, 0.05, 20);
+  // `wide` frames more of the body; `clear` leaves the background transparent (a PNG), for the VS screen
+  function portraits(roster, { size = 192, wide = 1, clear = false } = {}) {
+    const out = {}, S = size, rt = new THREE.WebGLRenderTarget(S, S), ps = new THREE.Scene(), pc = new THREE.PerspectiveCamera(24, 1, 0.05, 20);
     rt.texture.colorSpace = THREE.SRGBColorSpace; // render targets skip tone mapping, so the lights below are gentler
     ps.environment = scene.environment;
     const key = new THREE.DirectionalLight('#fff4e4', 1.8); key.position.set(2, 2, 3); const back = new THREE.DirectionalLight('#9ec4ff', 1.4); back.position.set(-2, 2, -3);
     ps.add(key, back, new THREE.HemisphereLight('#e8f0ff', '#6a5a4a', 0.5));
-    const bg = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshBasicMaterial({ color: '#2a2030' })); bg.position.z = -3; ps.add(bg);
+    const bg = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), new THREE.MeshBasicMaterial({ color: '#2a2030' })); bg.position.z = -3; ps.add(bg); bg.visible = !clear;
+    const clearColor = new THREE.Color(), clearAlpha = renderer.getClearAlpha(); renderer.getClearColor(clearColor);
     const px = new Uint8Array(S * S * 4), cv = canvas(S, S), cx = cv.getContext('2d'), img = cx.createImageData(S, S);
     for (const c of roster) {
       const real = hasMocap(mocap, c.id), m = real ? mocapFighter(mocap, c, ps) : fighterModel(c, ps, { low });
@@ -412,11 +414,14 @@ export function createView(canvasEl, { low = false, gfx = null } = {}) {
       ps.updateMatrixWorld(true);
       const head = new THREE.Vector3(); (real ? m.bones.Head : m.head).getWorldPosition(head);
       bg.material.color.set(c.colors.accent).multiplyScalar(0.35);
-      pc.position.set(head.x + 0.55 * c.build, head.y + 0.06 * c.build, head.z + 0.95 * c.build); pc.lookAt(head.x, head.y + 0.02 * c.build, head.z);
-      renderer.setRenderTarget(rt); renderer.render(ps, pc); renderer.readRenderTargetPixels(rt, 0, 0, S, S, px); renderer.setRenderTarget(null);
+      const k = c.build * wide, drop = (wide - 1) * 0.28 * c.build;
+      pc.position.set(head.x + 0.55 * k, head.y + 0.06 * c.build - drop, head.z + 0.95 * k); pc.lookAt(head.x, head.y + 0.02 * c.build - drop, head.z);
+      if (clear) renderer.setClearColor(0x000000, 0);
+      renderer.setRenderTarget(rt); renderer.clear(); renderer.render(ps, pc); renderer.readRenderTargetPixels(rt, 0, 0, S, S, px); renderer.setRenderTarget(null);
+      if (clear) renderer.setClearColor(clearColor, clearAlpha);
       for (let y = 0; y < S; y++) img.data.set(px.subarray((S - 1 - y) * S * 4, (S - y) * S * 4), y * S * 4);
       cx.putImageData(img, 0, 0);
-      out[c.id] = cv.toDataURL('image/jpeg', 0.9);
+      out[c.id] = clear ? cv.toDataURL('image/png') : cv.toDataURL('image/jpeg', 0.9);
       ps.remove(m.root);
     }
     rt.dispose();

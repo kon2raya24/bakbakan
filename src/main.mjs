@@ -71,7 +71,7 @@ let mode = 'title', g = null, session = null, acc = 0, slow = 0, prev = null;
 // Where everything was one tick ago, so frames can be drawn between ticks.
 const remember = () => ({ f: g.f.map((f) => ({ x: f.x, y: f.y })), p: new Map(g.projs.map((p) => [p, { x: p.x, y: p.y }])) });
 
-const SCREENS = ['title', 'how', 'select', 'ladder', 'pause', 'result'];
+const SCREENS = ['vs', 'title', 'how', 'select', 'ladder', 'pause', 'result'];
 function show(name) {
   for (const id of SCREENS) $(id).hidden = id !== name;
   document.body.classList.toggle('fighting', name === null || name === 'pause');
@@ -169,6 +169,14 @@ function hud() {
   if (shown.timer !== secs) { shown.timer = secs; el.timer.textContent = secs < 0 ? '∞' : String(secs); el.timer.classList.toggle('low', secs >= 0 && secs <= 10); }
   $('tb-x').style.opacity = g.f[0].meter >= METER.max ? 1 : 0.45;
 }
+// a super's cut-in: the fighter's face across a band, with the super's name
+function cutIn(side, name) {
+  const c = $('cutin'), id = g.f[side].id;
+  if (view && view.mocap && !BIG[id]) try { Object.assign(BIG, view.portraits([byId(id)], { size: 512, wide: 2.1, clear: true })); } catch { /* the small one */ }
+  c.querySelector('img').src = BIG[id] || PORTRAITS[id]; c.querySelector('b').textContent = name;
+  c.className = `p${side + 1}`; c.hidden = false; void c.offsetWidth; c.classList.add('show');
+  clearTimeout(c.t); c.t = setTimeout(() => { c.hidden = true; }, 1000);
+}
 // the fighters' portraits beside their health bars
 function faces(a, b) { [a, b].forEach((id, i) => { $(`f${i + 1}`).style.backgroundImage = PORTRAITS[id] ? `url(${PORTRAITS[id]})` : ''; }); }
 function banner(big, small = '', ms = 1200, red = false) {
@@ -199,7 +207,7 @@ function onEvent(e) {
       if (e.counter) callout(e.side, 'COUNTER!');
       break;
     case 'special': callout(e.side, `${e.name}!`); break;
-    case 'super': callout(e.side, `★ ${e.name.toUpperCase()} ★`, 1500); break;
+    case 'super': cutIn(e.side, e.name); break; // the cut-in names it
     case 'throw': callout(e.side, `${e.name}!`); break;
     case 'tech': callout(e.side, 'NAKAWALA!'); break;
     case 'ko': slow = 50; banner(e.double ? 'DOUBLE K.O.' : 'K.O.!', e.perfect ? 'PERFECT!' : '', 1800, true); break;
@@ -217,6 +225,20 @@ function footsteps() {
 }
 
 // ---------- sessions ----------
+// The VS screen, then the fight: two big portraits slide in, VS slams down, the stage is named.
+const BIG = {};
+function versus(then) {
+  const s = session;
+  if (!s || s.kind === 'training' || s.kind === 'demo' || Q.get('fight')) { then(); return; }
+  const a = byId(s.p1), b = byId(s.p2), st = STAGES.find((x) => x.id === s.stage) || STAGES[0];
+  if (view && view.mocap) for (const c of [a, b]) if (!BIG[c.id]) try { Object.assign(BIG, view.portraits([c], { size: 512, wide: 2.1, clear: true })); } catch { /* the small one will do */ }
+  [[a, 1], [b, 2]].forEach(([c, i]) => { $(`vs-i${i}`).src = BIG[c.id] || PORTRAITS[c.id]; $(`vs-n${i}`).textContent = c.name; $(`vs-t${i}`).textContent = `${c.style} · ${c.from}`; $(`vs-i${i}`).parentElement.style.setProperty('--c', c.colors.accent); });
+  $('vs-where').textContent = `${st.name} · ${st.place}`;
+  mode = 'vs'; show('vs'); A.sfx('super');
+  let done = false; const go2 = () => { if (done) return; done = true; removeEventListener('keydown', skip); $('vs').onclick = null; then(); };
+  const skip = (e) => { if (e.code === 'Enter' || e.code === 'KeyJ' || e.code === 'Space') go2(); };
+  addEventListener('keydown', skip); $('vs').onclick = go2; setTimeout(go2, 2300);
+}
 function beginFight() {
   const s = session;
   g = createMatch({ p1: s.p1, p2: s.p2, stage: s.stage, seed: seed() });
@@ -259,6 +281,10 @@ function finish(winner) {
   A.say(winner === null ? 'tie' : s.humans[0] && s.humans[1] ? 'winner' : s.humans[winner] ? 'you_win' : 'you_lose');
   const wid = winner === null ? null : winner === 0 ? s.p1 : s.p2;
   const quote = wid ? QUOTES[wid].win[Math.floor(Math.random() * 3)] : 'Walang nanalo. Isa pa!';
+  // the winner, big, beside the result
+  const face = $('result-face');
+  if (wid && view && view.mocap && !BIG[wid]) try { Object.assign(BIG, view.portraits([byId(wid)], { size: 512, wide: 2.1, clear: true })); } catch { /* no portrait, then */ }
+  face.hidden = !(wid && BIG[wid]); if (wid && BIG[wid]) face.src = BIG[wid];
   const buttons = [];
   $('result-score').textContent = '';
   if (s.kind === 'arcade') {
@@ -391,7 +417,7 @@ function go() {
   const stage = sel.stage === 'random' ? STAGES[Math.floor(Math.random() * STAGES.length)].id : sel.stage;
   const humans = sel.kind === 'versus' ? [true, !sel.cpu2] : [true, false];
   session = { kind: sel.kind, p1, p2, stage, humans, levels: [data.diff, data.diff] };
-  beginFight();
+  versus(beginFight);
 }
 
 // ---------- training ----------
@@ -441,7 +467,7 @@ function howFirst(kind) { afterHow = kind; mode = 'how'; show('how'); }
 $('how-btn').onclick = () => { afterHow = null; mode = 'how'; show('how'); };
 $('how-ok').onclick = () => { data.how = true; persist(); if (afterHow) openSelect(afterHow); else toTitle(); };
 $('select-ok').onclick = () => { if (sel.kind !== 'arcade' && !sel.picked[1]) { sel.picked[0] = true; sel.picked[1] = true; } go(); };
-$('ladder-ok').onclick = beginFight;
+$('ladder-ok').onclick = () => versus(beginFight);
 $('resume').onclick = resume;
 $('pause-btn').onclick = pause;
 for (const b of document.querySelectorAll('.menu')) b.onclick = toTitle;
