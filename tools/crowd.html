@@ -55,7 +55,7 @@ function bake(char) {
 }
 
 // one geometry from the pieces, welded, then thinned to about its share of the triangle budget
-function build(pieces, share) {
+function build(pieces, share, lockNear = null) {
   const pos = [], nor = [], uv = [], idx = [];
   for (const p of pieces) {
     const map = new Map();
@@ -71,7 +71,21 @@ function build(pieces, share) {
   if (g.index.count > target) {
     const P3 = g.attributes.position.array, attrs = new Float32Array(g.attributes.position.count * 5);
     for (let i = 0; i < g.attributes.position.count; i++) { attrs.set([g.attributes.normal.getX(i), g.attributes.normal.getY(i), g.attributes.normal.getZ(i), g.attributes.uv.getX(i), g.attributes.uv.getY(i)], i * 5); }
-    const [ni] = MeshoptSimplifier.simplifyWithAttributes(new Uint32Array(g.index.array), P3, 3, attrs, 5, [0.3, 0.3, 0.3, 1, 1], null, target, 0.06);
+    // the head gets its own budget, thinned gently (eyes and lips are what make a crowd look wrong up
+    // close); the body is thinned harder; the seam between them is locked so nothing cracks
+    const ix = g.index.array, parts2 = [[], []];
+    for (let t = 0; t < ix.length; t += 3) {
+      let inHead = !!lockNear;
+      if (inHead) for (let q = 0; q < 3; q++) { const v = ix[t + q], dx = P3[v * 3] - lockNear.x, dy = P3[v * 3 + 1] - lockNear.y, dz = P3[v * 3 + 2] - lockNear.z; if (dx * dx + dy * dy + dz * dz > 0.15 * 0.15) { inHead = false; break; } }
+      parts2[inHead ? 0 : 1].push(ix[t], ix[t + 1], ix[t + 2]);
+    }
+    const headT = Math.min(parts2[0].length, 1400 * 3), bodyT = Math.max(60 * 3, target - headT);
+    // lock just the vertices the two share (the neckline), not every texture seam
+    const inH = new Uint8Array(g.attributes.position.count), seam = new Uint8Array(g.attributes.position.count);
+    for (const v of parts2[0]) inH[v] = 1;
+    for (const v of parts2[1]) if (inH[v]) seam[v] = 1;
+    const thin = (idx, tgt, err) => (idx.length > tgt ? MeshoptSimplifier.simplifyWithAttributes(new Uint32Array(idx), P3, 3, attrs, 5, [0.3, 0.3, 0.3, 1, 1], seam, tgt, err)[0] : new Uint32Array(idx));
+    const h = thin(parts2[0], headT, 0.008), bd = thin(parts2[1], bodyT, 0.05), ni = new Uint32Array(h.length + bd.length); ni.set(h); ni.set(bd, h.length);
     g.setIndex(new THREE.BufferAttribute(ni, 1));
   }
   // keep only the vertices the triangles still use
@@ -126,9 +140,10 @@ for (const ch of job.chars) {
     const mixer = new THREE.AnimationMixer(char), t = pick(clip, char, mixer, ps.want);
     const byMat = bake(char), pose = new THREE.Group(); pose.name = `${ch.id}|${ps.id}`;
     const total = [...byMat.values()].reduce((a, ps2) => a + ps2.reduce((b, p) => b + p.idx.length / 3, 0), 0);
+    const head = findBone(char, 'Head'), face = new THREE.Vector3(); head.getWorldPosition(face); face.y += 0.08;
     for (const [m, pieces] of byMat) {
       const tri = pieces.reduce((b, p) => b + p.idx.length / 3, 0);
-      const mesh = new THREE.Mesh(build(pieces, job.tris * tri / total), matFor(m)); mesh.name = `${ch.id}|${ps.id}|${m.name}`; pose.add(mesh);
+      const mesh = new THREE.Mesh(build(pieces, job.tris * tri / total, /hair|lash/i.test(m.name) ? null : face), matFor(m)); mesh.name = `${ch.id}|${ps.id}|${m.name}`; pose.add(mesh);
     }
     group.add(pose);
     const hp = new THREE.Vector3(); hips.getWorldPosition(hp);

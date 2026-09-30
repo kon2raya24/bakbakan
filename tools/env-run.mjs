@@ -35,7 +35,37 @@ for (const h of job.skies || []) {
   writeFileSync(`${outDir}/sky/${h.id}.hdr`, shrinkHDR(readFileSync(f), h.w || 512));
   index.sky[h.id] = `sky/${h.id}.hdr`; console.log('sky', h.id);
 }
+// backdrops: a sky seen directly, from the 2k .hdr, tone-mapped into a 2048 × 1024 JPEG
+index.backdrop = index.backdrop || {};
+for (const b of job.backdrops || []) {
+  const f = `${src}${b.id}/${b.id}_2k.hdr`;
+  if (!existsSync(f)) { console.log('no backdrop', b.id); continue; }
+  const { w, h, px } = parseHDR(readFileSync(f)), ex = b.exposure || 1;
+  const rgb = Buffer.alloc(w * h * 3);
+  // ACES (Narkowicz), then sRGB
+  const aces = (x) => { x *= ex; return Math.min(1, Math.max(0, (x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14))); };
+  const srgb = (x) => (x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055);
+  for (let i = 0; i < w * h * 3; i++) rgb[i] = Math.round(srgb(aces(px[i])) * 255);
+  const ppm = `${outDir}/sky/${b.id}.ppm`;
+  writeFileSync(ppm, Buffer.concat([Buffer.from(`P6\n${w} ${h}\n255\n`), rgb]));
+  execFileSync('python3', ['-c', `from PIL import Image; import os; im = Image.open(${JSON.stringify(ppm)}); im.resize((${b.w || 2048}, ${(b.w || 2048) / 2}), Image.LANCZOS).save(${JSON.stringify(`${outDir}/sky/${b.id}.jpg`)}, quality=86); os.remove(${JSON.stringify(ppm)})`]);
+  index.backdrop[b.id] = `sky/${b.id}.jpg`; console.log('backdrop', b.id);
+}
 writeFileSync(`${outDir}/env.json`, JSON.stringify(index));
+
+function parseHDR(buf) {
+  let p = 0; const line = () => { let s = ''; while (buf[p] !== 10) s += String.fromCharCode(buf[p++]); p++; return s; };
+  let l; while ((l = line()) !== '') { /* header lines */ }
+  const [, h, , w] = line().split(' ').map((x, i) => (i % 2 ? +x : x));
+  const px = new Float32Array(w * h * 3);
+  for (let y = 0; y < h; y++) {
+    const row = new Uint8Array(w * 4);
+    if (buf[p] === 2 && buf[p + 1] === 2) { p += 4; for (let c = 0; c < 4; c++) { let x = 0; while (x < w) { let n = buf[p++]; if (n > 128) { n -= 128; const v = buf[p++]; while (n--) row[(x++) * 4 + c] = v; } else while (n--) row[(x++) * 4 + c] = buf[p++]; } } }
+    else { for (let x = 0; x < w; x++) for (let c = 0; c < 4; c++) row[x * 4 + c] = buf[p++]; }
+    for (let x = 0; x < w; x++) { const e = row[x * 4 + 3], f = e ? Math.pow(2, e - 136) : 0; for (let c = 0; c < 3; c++) px[(y * w + x) * 3 + c] = row[x * 4 + c] * f; }
+  }
+  return { w, h, px };
+}
 
 function shrinkHDR(buf, W) {
   // parse the header

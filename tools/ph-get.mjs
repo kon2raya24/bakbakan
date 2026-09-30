@@ -25,6 +25,9 @@ await Promise.all(Array.from({ length: 6 }, async () => {
         }
       } else if (kind === 'hdri') {
         const f = files.hdri['1k'].hdr; n += await save(f.url, join(dir, id + '_1k.hdr'));
+      } else if (kind === 'sky') { // a sky seen directly: 2k, for a sharp backdrop
+        const f = files.hdri['2k'].hdr; n += await save(f.url, join(dir, id + '_2k.hdr'));
+        const g = files.hdri['1k'].hdr; n += await save(g.url, join(dir, id + '_1k.hdr'));
       }
       total += n; console.log('ok', kind, id, (n / 1e6).toFixed(2) + ' MB');
     } catch (e) { console.log('FAIL', kind, id, String(e.message || e)); }

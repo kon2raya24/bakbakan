@@ -43,7 +43,11 @@ export function createView(canvasEl, { low = false, gfx = null } = {}) {
   // the visible sky
   const skyU = { top: { value: new THREE.Color() }, mid: { value: new THREE.Color() }, low: { value: new THREE.Color() } };
   const skyShader = { vertexShader: 'varying vec3 v; void main(){ v = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }', fragmentShader: 'uniform vec3 top; uniform vec3 mid; uniform vec3 low; varying vec3 v; void main(){ float h = v.y; vec3 c = h > 0.0 ? mix(mid, top, smoothstep(0.0, 0.55, h)) : mix(mid, low, smoothstep(0.0, -0.2, h)); gl_FragColor = vec4(c, 1.0); }' };
-  scene.add(new THREE.Mesh(new THREE.SphereGeometry(200, 32, 16), new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyU, ...skyShader })));
+  const skyMat = new THREE.ShaderMaterial({ side: THREE.BackSide, depthWrite: false, fog: false, uniforms: skyU, ...skyShader }), sky = new THREE.Mesh(new THREE.SphereGeometry(200, 48, 24), skyMat);
+  scene.add(sky);
+  // a photographed sky, once it's loaded, in place of the painted gradient
+  const backdropMat = new THREE.MeshBasicMaterial({ side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false });
+  const setBackdrop = (tex, turn = 0, bright = 1) => { if (tex) { backdropMat.map = tex; backdropMat.color.setScalar(bright); backdropMat.needsUpdate = true; sky.material = backdropMat; sky.rotation.y = turn; } else { sky.material = skyMat; sky.rotation.y = 0; } };
   // reflections: each stage's sky and its brightest lights, prefiltered for rough and shiny surfaces
   const pmrem = new THREE.PMREMGenerator(renderer);
   let envRT = null;
@@ -61,7 +65,7 @@ export function createView(canvasEl, { low = false, gfx = null } = {}) {
   function setStage(id) {
     if (id === stageId) return;
     if (stage) { scene.remove(stage.group); stage.group.traverse((o) => { if (o.geometry && !o.userData.shared) o.geometry.dispose(); }); }
-    stage = buildStage(id, scene, { low }); stageId = id;
+    stage = buildStage(id, scene, { low }); stageId = id; setBackdrop(null);
     seatCrowd(); post.setStage(id); dressStage();
     const L = stage.light;
     hemi.color.set(L.hemi[0]); hemi.groundColor.set(L.hemi[1]); hemi.intensity = L.hemi[2];
@@ -79,12 +83,18 @@ export function createView(canvasEl, { low = false, gfx = null } = {}) {
   function dressStage() {
     if (!env || !stage) return;
     const token = ++dressing, st = stage;
-    dress(env, stageId, st, { pmrem, current: () => token === dressing && stage === st, setEnvironment(tex, power, turn) { scene.environment = tex; scene.environmentIntensity = power; scene.environmentRotation.set(0, turn, 0); } }).catch(() => { /* the painted stage stays */ });
+    dress(env, stageId, st, { pmrem, current: () => token === dressing && stage === st, setEnvironment(tex, power, turn) { scene.environment = tex; scene.environmentIntensity = power; scene.environmentRotation.set(0, turn, 0); }, setBackdrop }).catch(() => { /* the painted stage stays */ });
   }
 
   // the real crowd, once it has loaded, takes the painted one's seats
   let crowdLib = null;
   function seatCrowd() {
+    if (stage && crowdLib && stage.people && stage.people.length && !stage.onlookers) {
+      let q = 11; const rnd = () => ((q = (q * 16807) % 2147483647) / 2147483647);
+      stage.onlookers = buildCrowd(crowdLib, stage.people, rnd);
+      stage.onlookers.group.traverse((o) => { o.userData.shared = true; });
+      stage.group.add(stage.onlookers.group);
+    }
     const gl = stage && stage.glows.find((x) => x.crowd);
     if (!gl || !crowdLib || gl.crowd.real) return;
     let r = 7; const rand = () => ((r = (r * 16807) % 2147483647) / 2147483647);
@@ -176,7 +186,7 @@ export function createView(canvasEl, { low = false, gfx = null } = {}) {
       for (const b of cands) { b.getWorldPosition(tv); const p = tr.prev.get(b); const v = p ? tv.distanceTo(p) / Math.max(dt, 1e-3) : 0; if (!p) tr.prev.set(b, tv.clone()); else p.copy(tv); if (v > bestV) { bestV = v; best = b; } }
       if (best && m.props.length && (m.c.id === 'lakan' || m.c.id === 'tanod') && (best === m.bones.RightHand || best === m.bones.LeftHand)) { const pr = m.props[best === m.bones.RightHand ? 0 : Math.min(1, m.props.length - 1)]; if (pr) { pr.updateWorldMatrix(true, true); tv.set(0.55 * (best === m.bones.RightHand ? 1 : -1), 0.075, 0.025).applyMatrix4(pr.matrixWorld); best = { p: tv.clone() }; } } // a stick's trail runs from its tip
     }
-    if (tr.on > 0 && best && bestV > 2.5) { const p = best.p ? best.p : best.getWorldPosition(new THREE.Vector3()); tr.pts.unshift(p.clone()); }
+    if (tr.on > 0 && best && bestV > 2.5) { const p = best.p ? best.p : best.getWorldPosition(new THREE.Vector3()); if (tr.pts.length && tr.pts[0].distanceTo(p) > 0.45) tr.pts.length = 0; tr.pts.unshift(p.clone()); } // a hitch would draw a long straight streak: start afresh
     else if (tr.pts.length) tr.pts.pop();
     if (tr.pts.length > TRAIL) tr.pts.length = TRAIL;
     const pos = tr.m.geometry.attributes.position, col = tr.m.geometry.attributes.color, n = tr.pts.length;
@@ -200,6 +210,7 @@ export function createView(canvasEl, { low = false, gfx = null } = {}) {
   boxLines.renderOrder = 9; boxLines.frustumCulled = false; scene.add(boxLines);
   const dummy = new THREE.Object3D();
 
+  const debug = { cam: null };
   const cam = { x: 0, y: 1.5, z: 7, shake: 0, flash: 0, flashSide: 0, slow: 0, hype: 0, split: 0, impact: 0 };
   function resize() {
     const r = canvasEl.getBoundingClientRect();
@@ -309,7 +320,8 @@ export function createView(canvasEl, { low = false, gfx = null } = {}) {
     for (let k = parts.length - 1; k >= 0; k--) { const p = parts[k]; p.life -= dt; if (p.life <= 0) { parts.splice(k, 1); continue; } p.vy -= p.g * dt; p.x += p.vx * dt; p.y = Math.max(0.02, p.y + p.vy * dt); p.z += p.vz * dt; }
     for (const p of parts) { pPos[n * 3] = p.x; pPos[n * 3 + 1] = p.y; pPos[n * 3 + 2] = p.z; const al = clamp((p.life / p.max) * 1.5, 0, 1); pCol[n * 3] = p.c.r * al; pCol[n * 3 + 1] = p.c.g * al; pCol[n * 3 + 2] = p.c.b * al; n++; }
     pGeo.setDrawRange(0, n); pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
-    // the stage breathes: the crowd, fireflies, candle flames
+    // the stage breathes: the crowd and the onlookers, fireflies, candle flames
+    if (stage.onlookers) stage.onlookers.update(t, g.phase === 'ko' || cam.hype > 0 ? 1 : 0);
     for (const gl of stage.glows) {
       if (gl.crowd && gl.crowd.real) gl.crowd.real.update(t, g.phase === 'ko' || cam.hype > 0 ? 1 : 0);
       else if (gl.crowd) {
@@ -322,6 +334,8 @@ export function createView(canvasEl, { low = false, gfx = null } = {}) {
         bodies.instanceMatrix.needsUpdate = true; heads.instanceMatrix.needsUpdate = true;
       }
       if (gl.fly) { const u = gl.fly.userData; gl.fly.position.x += Math.sin(t * 0.7 + u.phase) * 0.004; gl.fly.position.y += Math.cos(t * 0.9 + u.phase) * 0.003; gl.fly.material.opacity = 0.35 + 0.65 * Math.max(0, Math.sin(t * 2.2 + u.phase)); }
+      if (gl.mist) { const u = gl.mist.userData; gl.mist.position.x = u.x0 + Math.sin(t * u.drift + u.phase) * 1.6; gl.mist.lookAt(camera.position.x, gl.mist.position.y, camera.position.z); }
+      if (gl.shaft) gl.shaft.material.opacity = gl.shaft.userData.base * (0.75 + 0.25 * Math.sin(t * 0.4 + gl.shaft.userData.phase));
       if (gl.flame) gl.flame.scale.set(1 + Math.sin(t * 17) * 0.1, 1.8 + Math.sin(t * 23) * 0.3, 1);
       if (gl.candle) gl.candle.intensity = 2.2 + Math.sin(t * 13) * 0.3 + Math.sin(t * 29) * 0.2;
     }
@@ -360,6 +374,7 @@ export function createView(canvasEl, { low = false, gfx = null } = {}) {
     camera.position.set(cam.x + Math.sin(cam.yaw) * cam.z + (Math.random() - 0.5) * shake, cam.y + 0.4 + cam.lift + (Math.random() - 0.5) * shake, Math.cos(cam.yaw) * cam.z);
     camera.lookAt(cam.x, cam.y - 0.05 + cam.lift * 0.25, 0);
     camera.rotateZ(cam.roll);
+    if (debug.cam) { camera.position.set(...debug.cam.slice(0, 3)); camera.lookAt(...debug.cam.slice(3, 6)); } // for checking a stage up close
     cam.shake = Math.max(0, cam.shake - dt * 0.6); cam.hype = Math.max(0, cam.hype - dt);
     cam.flash = g.freeze > 0 && cam.flash > 0 ? cam.flash : Math.max(0, cam.flash - dt * 3);
     dim.material.opacity = cam.flash * 0.6;
@@ -409,5 +424,5 @@ export function createView(canvasEl, { low = false, gfx = null } = {}) {
   }
 
   resize();
-  return { frame, event, resize, setStage, portraits, setMocap(lib) { mocap = lib; }, setCrowd(lib) { crowdLib = lib; seatCrowd(); }, setEnv(e) { env = e; dressStage(); }, get mocap() { return mocap; }, renderer, post, scene, models, get stage() { return stageId; }, cam };
+  return { frame, event, resize, setStage, portraits, setMocap(lib) { mocap = lib; }, setCrowd(lib) { crowdLib = lib; seatCrowd(); }, setEnv(e) { env = e; dressStage(); }, get mocap() { return mocap; }, renderer, post, scene, models, debug, get stage() { return stageId; }, cam };
 }

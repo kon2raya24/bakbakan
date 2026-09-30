@@ -67,6 +67,8 @@ export function buildStage(id, scene, { low = false } = {}) {
   const r = T.rng(id.length * 7919 + 3), pick = (a) => a[Math.floor(r() * a.length)];
   const TS = low ? 256 : 512;
   const glows = [];
+  // where onlookers stand or sit, for the real crowd (crowd.mjs): the sidewalk, benches, behind the stalls
+  const people = [];
   // the light, the sky for reflections, and the air
   const L = { hemi: ['#e4f1ff', '#8a7a64', 0.5], sun: ['#fff1dc', 3, [-4, 9, 6]], rim: ['#bcd8ff', 1.4], fog: ['#dce9f2', 20, 70], sky: st.sky, envSky: ['#8fc8f0', '#fff2d8', '#6a6258'], exposure: 1, fill: ['#ffffff', 0], cards: [] };
 
@@ -84,8 +86,8 @@ export function buildStage(id, scene, { low = false } = {}) {
     while (x < 24) {
       const w = 4 + Math.floor(r() * 4), floors = Math.max(2, Math.round((hMin + r() * (hMax - hMin)) / 3)), h = floors * 3, c = pick(colors);
       const f = T.facade(Math.floor(r() * 1e6), w, h, c, { shop: r() < shops, sky: sky || L.envSky, lit });
-      add(mesh(new THREE.BoxGeometry(w, h, 6), std({ color: T.shade(c, 0.85), roughness: 0.95 }), { x: x + w / 2, y: h / 2, z: z - 3 }));
-      add(mesh(new THREE.PlaneGeometry(w, h), std({ map: f.map, normalMap: f.normalMap, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.85 }), { x: x + w / 2, y: h / 2, z: z + 0.005, cast: false }));
+      add(mesh(new THREE.BoxGeometry(w, h, 6), tag(std({ color: T.shade(c, 0.85), roughness: 0.95 }), 'plaster', 6, h, { detail: true }), { x: x + w / 2, y: h / 2, z: z - 3 }));
+      add(mesh(new THREE.PlaneGeometry(w, h), tag(std({ map: f.map, normalMap: f.normalMap, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.85 }), 'plaster', w, h, { detail: true }), { x: x + w / 2, y: h / 2, z: z + 0.005, cast: false }));
       add(mesh(roundedBox(w + 0.2, 0.25, 0.5, 0.05), std({ color: T.shade(c, 1.05), roughness: 0.9 }), { x: x + w / 2, y: h + 0.12, z: z - 0.1 })); // the parapet
       for (let f2 = 1; f2 < floors; f2++) if (r() < 0.6) { // an air-con unit under a window
         const ax = x + 0.8 + r() * (w - 1.6);
@@ -130,9 +132,37 @@ export function buildStage(id, scene, { low = false } = {}) {
     // car paint with a clear coat, polished chrome and glass: they mirror the real sky once it loads
     const chrome = std({ color: '#f2f4f6', metalness: 1, roughness: 0.08 }), glass = new THREE.MeshPhysicalMaterial({ color: '#1a222a', roughness: 0.03, metalness: 0.1, clearcoat: 1 }), tyre = std({ color: '#161616', roughness: 0.85 });
     const paintM = (o) => new THREE.MeshPhysicalMaterial({ roughness: 0.32, metalness: 0.25, clearcoat: 1, clearcoatRoughness: 0.06, ...o });
-    const jside = (c, route) => { const cv = T.canvas(1024, 256), x = cv.getContext('2d'); x.fillStyle = c; x.fillRect(0, 0, 1024, 256); const gr = x.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, 'rgba(255,255,255,0.25)'); gr.addColorStop(1, 'rgba(0,0,0,0.2)'); x.fillStyle = gr; x.fillRect(0, 0, 1024, 256); ['#e8384f', '#2f6fd6', '#ffd23f', '#3fae5a'].forEach((cc, k) => { x.fillStyle = cc; x.beginPath(); x.moveTo(0, 150 + k * 16); for (let i = 0; i <= 1024; i += 32) x.lineTo(i, 150 + k * 16 + Math.sin(i / 90 + k) * 6); x.lineTo(1024, 162 + k * 16); x.lineTo(0, 162 + k * 16); x.fill(); }); x.fillStyle = '#c0182e'; x.font = '800 44px "Baloo 2", system-ui'; x.textAlign = 'center'; x.fillText(route, 512, 240); return T.toTex(cv); };
-    for (const [x, c, route] of [[-7, '#f2f0ea', 'CUBAO — QUIAPO'], [0.3, '#fff2c8', 'DIVISORIA'], [7.6, '#d8ecf4', 'ESPAÑA — CUBAO']]) {
-      const j = new THREE.Group(), paint = paintM({ map: jside(c, route) }), body = paintM({ color: c });
+    // a jeepney's side: pressed-steel ridges and a row of rivets (with their own relief), stainless or
+    // painted, an airbrushed swoosh of colour, a name in the owner's hand, and the route
+    const jside = (c, route, k) => {
+      const steel = k === 0, fine = T.noise(1024, 256, 2, T.rng(90 + k)), [cr, cg, cb] = steel ? [206, 210, 214] : [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
+      const ridge = (y) => [44, 58, 206, 222].reduce((h, y0) => h + Math.max(0, 1 - Math.abs(y - y0) / 3), 0);
+      const P = T.paint(1024, 256, (x, y) => {
+        const brush = steel ? (fine[y * 1024 + ((x * 7) % 1024)] - 0.5) * 26 : (fine[y * 1024 + x] - 0.5) * 8;
+        const rv = y > 24 && y < 32 && x % 18 < 6 ? 1 : 0, rg = ridge(y), lit = rg * 34 + rv * 40;
+        return [cr + brush + lit, cg + brush + lit, cb + brush + lit, rg * 1.2 + rv * 0.8];
+      }, { strength: 5 });
+      const x = P.canvas.getContext('2d');
+      // the airbrushed swooshes
+      const sw = [['#e8384f', '#ffd23f'], ['#2f6fd6', '#7fd8ff'], ['#3fae5a', '#ffd23f']];
+      sw.forEach(([a0, a1], i) => { const g = x.createLinearGradient(0, 0, 1024, 0); g.addColorStop(0, a0); g.addColorStop(0.5, a1); g.addColorStop(1, a0); x.fillStyle = g; x.globalAlpha = 0.9; x.beginPath(); x.moveTo(0, 150 + i * 14); for (let i2 = 0; i2 <= 1024; i2 += 32) x.lineTo(i2, 150 + i * 14 + Math.sin(i2 / 120 + i) * 12 - (i2 > 700 ? (i2 - 700) * 0.15 : 0)); x.lineTo(1024, 162 + i * 14); x.lineTo(0, 162 + i * 14); x.fill(); });
+      x.globalAlpha = 1;
+      // the name, in the owner's hand, with a shadow; and the route along the bottom
+      x.font = 'italic 800 46px "Baloo 2", system-ui'; x.textAlign = 'center';
+      const name = ['BATANG CUBAO', 'GOD BLESS OUR TRIP', 'LOLO ISKO'][k % 3];
+      x.fillStyle = 'rgba(0,0,0,0.45)'; x.fillText(name, 514, 124); x.fillStyle = steel ? '#c0182e' : '#ffffff'; x.fillText(name, 512, 121);
+      x.strokeStyle = '#1a1a1a'; x.lineWidth = 1.5; x.strokeText(name, 512, 121);
+      x.font = '800 30px "Baloo 2", system-ui'; x.fillStyle = '#1a1a1a'; x.fillText(route, 512, 246);
+      P.map.needsUpdate = true;
+      return P;
+    };
+    for (const [x, c, route, k] of [[-7, '#f2f0ea', 'CUBAO — QUIAPO', 0], [0.3, '#f2c83a', 'DIVISORIA', 1], [7.6, '#3a78c8', 'ESPAÑA — CUBAO', 2]]) {
+      const side = jside(c, route, k);
+      for (const tx of [side.map, side.normalMap]) { tx.repeat.set(1 / 3.9, 1 / 0.85); tx.offset.set(0.5, 0.5); tx.wrapS = tx.wrapT = THREE.ClampToEdgeWrapping; } // the rounded body's UVs are in metres: fit the painting to its 3.9 × 0.85 m side
+      const j = new THREE.Group(), paint = k === 0 ? std({ map: side.map, normalMap: side.normalMap, metalness: 0.85, roughness: 0.28 }) : paintM({ map: side.map, normalMap: side.normalMap }), body = k === 0 ? std({ color: '#d2d6da', metalness: 0.85, roughness: 0.25 }) : paintM({ color: c });
+      // the lit route sign over the windshield
+      const rs = T.canvas(256, 64), rx = rs.getContext('2d'); rx.fillStyle = '#fff8e0'; rx.fillRect(0, 0, 256, 64); rx.fillStyle = '#c0182e'; rx.font = '800 40px "Baloo 2", system-ui'; rx.textAlign = 'center'; rx.fillText(route.split(' ')[0], 128, 48);
+      j.add(mesh(new THREE.BoxGeometry(0.08, 0.2, 1.1), std({ map: T.toTex(rs), emissive: '#fff4d0', emissiveMap: T.toTex(rs), emissiveIntensity: 0.9 }), { x: 1.86, y: 2.02, cast: false }));
       j.add(mesh(roundedBox(3.9, 0.85, 1.9, 0.1), paint, { x: -0.25, y: 0.98 })); // the passenger body, painted
       j.add(mesh(roundedBox(3.7, 0.44, 1.78, 0.04), glass, { x: -0.3, y: 1.62 })); // the open windows
       for (let k = 0; k < 7; k++) j.add(mesh(new THREE.BoxGeometry(0.07, 0.46, 1.92), body, { x: -2.05 + k * 0.6, y: 1.62 })); // pillars
@@ -160,6 +190,10 @@ export function buildStage(id, scene, { low = false } = {}) {
     const wm = std({ color: '#1b1b1b', roughness: 0.6 });
     for (const dy of [0, 0.3, 0.55]) wire([-24, 7.6 - dy, -8.6], [24, 7.6 - dy, -8.6], 0.6, wm);
     bunting(-2.2, 4.3);
+    // waiting passengers and passers-by, stopped to watch; two on the bench, two on the monobloc chairs
+    for (const [x, z] of [[-1.7, -3.3], [-0.2, -3.15], [1.1, -3.5], [-4.3, -3.3], [6.9, -3.35], [7.9, -3.85], [-8.8, -3.3], [0.5, -4.15], [-5.3, -4.1], [8.6, -3.2]]) people.push({ x, y: 0.16, z, stand: true });
+    for (const [x, z, y] of [[-1.2, -3.78, 0.6], [-0.55, -3.78, 0.6], [-3.3, -3.45, 0.6], [-2.6, -3.98, 0.6]]) people.push({ x, y, z, stand: false });
+    for (const x of [-5.6, 3.9, 11.2]) people.push({ x, y: 0, z: -5.1, stand: true });
   } else if (id === 'court') {
     // a barangay covered court at night: a glossy wooden floor under floodlights, bleachers, the liga
     Object.assign(L, { hemi: ['#6a7ab0', '#2a2430', 0.35], sun: ['#fff0dc', 3.6, [1, 12, 5]], rim: ['#8fb0ff', 2.2], fog: ['#141828', 16, 50], exposure: 1.1, fill: ['#fff0dc', 5], envSky: ['#0a0e20', '#2a2a48', '#3a2a1a'], cards: [{ dir: [0, 1, 0.1], color: '#fff4e0', size: 0.3, power: 14 }, { dir: [0.6, 0.8, 0], color: '#fff4e0', size: 0.15, power: 8 }, { dir: [-0.6, 0.8, 0], color: '#fff4e0', size: 0.15, power: 8 }] });
@@ -198,9 +232,12 @@ export function buildStage(id, scene, { low = false } = {}) {
     const truss = std({ color: '#3a3a40', roughness: 0.5, metalness: 0.7 });
     for (let x = -12; x <= 12; x += 3) add(mesh(new THREE.BoxGeometry(0.1, 0.1, 12), truss, { x, y: 7.6, z: -2 }));
     for (let x = -9; x <= 9; x += 6) { add(mesh(roundedBox(0.9, 0.18, 0.5, 0.03), std({ color: '#fff8e8', emissive: '#fff4e0', emissiveIntensity: 3 }), { x, y: 7.35, z: -1.5, cast: false })); }
+    // the floodlights' beams, hazy in the night air of the court
+    const beamT = (() => { const cv = T.canvas(64, 256), x = cv.getContext('2d'), g = x.createLinearGradient(0, 0, 0, 256); g.addColorStop(0, 'rgba(255,244,220,0.55)'); g.addColorStop(1, 'rgba(255,244,220,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 256); const h = x.createLinearGradient(0, 0, 64, 0); h.addColorStop(0, 'rgba(0,0,0,1)'); h.addColorStop(0.5, 'rgba(0,0,0,0)'); h.addColorStop(1, 'rgba(0,0,0,1)'); x.globalCompositeOperation = 'destination-out'; x.fillStyle = h; x.fillRect(0, 0, 64, 256); return T.toTex(cv); })();
+    for (const [x, rz] of [[-9, 0.22], [-3, 0.08], [3, -0.08], [9, -0.22]]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 8.5), new THREE.MeshBasicMaterial({ map: beamT, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.17, fog: false, side: THREE.DoubleSide })); m.position.set(x * 0.9, 3.2, -2.6); m.rotation.z = rz; m.userData = { dynamic: true, phase: x, base: 0.17 }; glows.push({ shaft: m }); add(m); }
   } else if (id === 'palengke') {
     // Divisoria in the morning: a wet concrete floor, stalls under striped awnings, fruit, fish on ice
-    Object.assign(L, { hemi: ['#dcecff', '#8a8678', 0.6], sun: ['#fff8ec', 3.2, [4, 10, 6]], rim: ['#dff0ff', 1.3], fog: ['#dce8ee', 18, 60], exposure: 0.85, envSky: ['#7ab8ea', '#eaf4f8', '#6a6a64'] });
+    Object.assign(L, { hemi: ['#cfe2ff', '#7a7264', 0.42], sun: ['#ffe8c8', 3.8, [7, 6.5, 6]], rim: ['#dff0ff', 1.2], fog: ['#c8dcea', 26, 80], exposure: 0.8, envSky: ['#5a9ee0', '#e0eef6', '#6a6a64'] });
     const wet = T.concrete(41, '#8e8e88', { size: TS, repeat: [6, 2] });
     const puddle = T.fbm(256, 128, 40, 3, T.rng(42)), rc = T.canvas(256, 128), rx = rc.getContext('2d'), img = rx.createImageData(256, 128);
     for (let i = 0; i < puddle.length; i++) { const v = puddle[i] > 0.58 ? 30 : 220; img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; }
@@ -240,6 +277,10 @@ export function buildStage(id, scene, { low = false } = {}) {
     }
     for (let k = 0; k < 8; k++) add(mesh(roundedBox(0.6, 0.4, 0.42, 0.03), woodM, { x: -11 + k * 3.1 + r(), y: 0.2 + (k % 3 === 0 ? 0.4 : 0), z: -2.5 }));
     bunting(-2.4, 3.4, ['#ffffff', '#2f6fd6', '#e8384f', '#ffd23f']);
+    // vendors behind their stalls (two on chairs), shoppers in front
+    for (const x of [-12.5, -7.4, -3.3, 0.6, 7.4, 12.4]) people.push({ x, y: 0, z: -4.75, stand: true });
+    for (const [x, z] of [[-8.6, -4.85], [4.3, -4.85]]) people.push({ x, y: 0.47, z, stand: false });
+    for (const [x, z] of [[-9.2, -2.2], [-3.1, -2.25], [3.3, -2.2], [9.1, -2.3], [-12.2, -2.9], [11.8, -2.8]]) people.push({ x, y: 0, z, stand: true });
   } else {
     // the balete at midnight: moonlight, mist, a gnarled trunk and its hanging roots, fireflies
     Object.assign(L, { hemi: ['#5a78a8', '#1a2418', 0.45], sun: ['#b8ccff', 2.6, [6, 9, -2]], rim: ['#9aff9a', 1.6], fog: ['#16262a', 10, 34], exposure: 1.3, fill: ['#9ab8ff', 6], envSky: ['#050a14', '#1a2a38', '#0e140c'], cards: [{ dir: [0.3, 0.45, -0.85], color: '#f4f0d0', size: 0.08, power: 6 }] });
@@ -257,7 +298,7 @@ export function buildStage(id, scene, { low = false } = {}) {
       add(mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.06 + r() * 0.1, 7), barkM));
     }
     // ground roots crawling out toward the fight
-    const rootM = tag(std({ map: bk.map, normalMap: bk.normalMap, normalScale: new THREE.Vector2(1.5, 1.5), roughness: 0.95 }), 'bark', 4, 0.6, { tint: '#6e6054' });
+    const rootM = tag(std({ map: bk.map, normalMap: bk.normalMap, normalScale: new THREE.Vector2(1.5, 1.5), roughness: 0.95 }), 'bark', 4, 0.6, { tint: '#4a3e34' });
     for (let k = 0; k < 7; k++) { const x0 = -6 + k * 2 + (r() - 0.5), pts = [new THREE.Vector3(x0 * 0.4, 0.3, -6.2), new THREE.Vector3(x0 * 0.7, 0.1, -4.8), new THREE.Vector3(x0 + (r() - 0.5), 0.04, -3.2 - r())]; add(mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 16, 0.08 + r() * 0.06, 7), rootM)); }
     const lf = T.fbm(256, 256, 12, 3, T.rng(55)), dots = T.noise(256, 256, 3, T.rng(56));
     const leaf = T.paint(256, 256, (x, y) => { const i = y * 256 + x, v = lf[i], d = dots[i] > 0.62 ? 1 : 0; return [18 + v * 34 + d * 14, 34 + v * 52 + d * 22, 14 + v * 18, v + d * 0.6]; }, { repeat: [2, 2], strength: 5 });
@@ -267,7 +308,8 @@ export function buildStage(id, scene, { low = false } = {}) {
     for (let k = 0; k < (low ? 10 : 18); k++) add(mesh(bush(2.2 + r() * 1.8, 4), leafM, { x: (r() - 0.5) * 22, y: 12 + r() * 3.5, z: -9 + (r() - 0.5) * 5 }));
     const lowLeafM = leafM.clone(); lowLeafM.userData.standIn = true; // real shrubs replace these
     for (let k = 0; k < 16; k++) add(mesh(bush(0.8 + r() * 1.2, 3), lowLeafM, { x: -16 + k * 2.1, y: 0.5, z: -10 - r() * 3 }));
-    add(mesh(new THREE.SphereGeometry(1.5, 24, 16), new THREE.MeshBasicMaterial({ color: '#f6f2d8', fog: false }), { x: 10, y: 14, z: -36, cast: false })); // the moon
+    const moonM = new THREE.MeshBasicMaterial({ color: '#f6f2d8', fog: false }); moonM.userData.skyStandIn = true; // a photographed night sky brings its own moon
+    add(mesh(new THREE.SphereGeometry(1.5, 24, 16), moonM, { x: 10, y: 14, z: -36, cast: false })); // the moon
     // a little shrine: tabi-tabi po, and candles
     const post = std({ map: T.planks(54, { size: 128, color: '#5a3a22' }).map, roughness: 0.9 });
     add(mesh(new THREE.BoxGeometry(0.08, 1.1, 0.08), post, { x: -5, y: 0.55, z: -2.8 }));
@@ -279,8 +321,13 @@ export function buildStage(id, scene, { low = false } = {}) {
     }
     const candle = new THREE.PointLight('#ffb05a', 2.5, 5, 2); candle.position.set(-4.5, 0.4, -2.4); candle.userData.dynamic = true; glows.push({ candle }); add(candle);
     const glowTex = (() => { const cv = T.canvas(64, 64), x = cv.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, 'rgba(230,255,150,1)'); g.addColorStop(0.3, 'rgba(180,255,90,0.5)'); g.addColorStop(1, 'rgba(120,255,60,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 64); return T.toTex(cv); })();
+    // mist lying on the forest floor, drifting, and moonlight slanting down through the canopy
+    const mistTex = (() => { const cv = T.canvas(128, 128), x = cv.getContext('2d'), g = x.createRadialGradient(64, 64, 0, 64, 64, 64); g.addColorStop(0, 'rgba(150,170,195,0.5)'); g.addColorStop(0.55, 'rgba(140,160,185,0.18)'); g.addColorStop(1, 'rgba(130,150,175,0)'); x.fillStyle = g; x.fillRect(0, 0, 128, 128); return T.toTex(cv); })(); // round, so the stretched banks fade out on every side
+    for (let k = 0; k < (low ? 8 : 16); k++) { const m = new THREE.Mesh(new THREE.PlaneGeometry(9 + r() * 6, 2.2 + r() * 1.4), new THREE.MeshBasicMaterial({ map: mistTex, transparent: true, depthWrite: false, opacity: 0.3 + r() * 0.25, fog: false })); m.position.set(-16 + (k / 15) * 32 + (r() - 0.5) * 3, 0.5 + r() * 0.8, -4.5 - r() * 7); m.userData = { dynamic: true, drift: 0.05 + r() * 0.12, phase: r() * TAU, x0: m.position.x }; glows.push({ mist: m }); add(m); }
+    const shaftTex = (() => { const cv = T.canvas(64, 256), x = cv.getContext('2d'), g = x.createLinearGradient(0, 0, 0, 256); g.addColorStop(0, 'rgba(190,210,255,0.5)'); g.addColorStop(1, 'rgba(190,210,255,0)'); x.fillStyle = g; x.fillRect(0, 0, 64, 256); const h = x.createLinearGradient(0, 0, 64, 0); h.addColorStop(0, 'rgba(0,0,0,1)'); h.addColorStop(0.5, 'rgba(0,0,0,0)'); h.addColorStop(1, 'rgba(0,0,0,1)'); x.globalCompositeOperation = 'destination-out'; x.fillStyle = h; x.fillRect(0, 0, 64, 256); return T.toTex(cv); })();
+    for (let k = 0; k < (low ? 3 : 6); k++) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1.2 + r() * 1.6, 14), new THREE.MeshBasicMaterial({ map: shaftTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.18 + r() * 0.12, fog: false, side: THREE.DoubleSide })); m.position.set(-8 + k * 3.4 + (r() - 0.5) * 2, 6, -6.5 - r() * 3); m.rotation.z = -0.32; m.userData = { dynamic: true, shaft: true, phase: r() * TAU, base: m.material.opacity }; glows.push({ shaft: m }); add(m); }
     for (let k = 0; k < (low ? 24 : 50); k++) { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending })); s.position.set((r() - 0.5) * 18, 0.4 + r() * 3.2, -1 - r() * 6); s.scale.setScalar(0.12 + r() * 0.1); s.userData = { phase: r() * TAU, dynamic: true }; glows.push({ fly: s }); add(s); }
   }
   mergeStatic(group);
-  return { group, light: L, glows };
+  return { group, light: L, glows, people };
 }

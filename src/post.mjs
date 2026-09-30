@@ -13,7 +13,7 @@ import { EffectComposer, RenderPass, UnrealBloomPass, GTAOPass, OutputPass, SMAA
 export const GRADE = {
   terminal: [1.08, 1.08, [1.05, 1.0, 0.93], 0.35, 0.25, 1.2],
   court: [1.1, 1.05, [0.98, 1.0, 1.04], 0.45, 0.3, 1.6],
-  palengke: [1.06, 1.1, [1.02, 1.01, 0.97], 0.3, 0.2, 1.3],
+  palengke: [1.14, 1.12, [1.03, 1.0, 0.95], 0.38, 0.2, 1.3],
   balete: [1.12, 0.92, [0.9, 1.0, 1.1], 0.55, 0.5, 0.85],
 };
 

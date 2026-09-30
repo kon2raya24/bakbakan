@@ -11,9 +11,12 @@ import { HDRLoader } from './vendor/three-fx.min.js';
 const SKY = {
   terminal: ['sunset_jhbcentral', 0.55, 2.2],
   court: ['basement_boxing_ring', 0.45, 0],
-  palengke: ['leadenhall_market', 0.6, 0.6],
+  palengke: ['leadenhall_market', 0.4, 0.6],
   balete: ['narrow_moonlit_road', 0.7, 3.4],
 };
+
+// the sky seen behind each outdoor stage: [photo, turn, brightness]
+const BACKDROP = { terminal: ['the_sky_is_on_fire', 1.9, 1], palengke: ['kloppenheim_06_puresky', 0.4, 1], balete: ['kloppenheim_02_puresky', 2.6, 1.1] };
 
 // [prop, x, y, z, turn, scale]; y is the ground under it
 const PLACES = {
@@ -56,7 +59,8 @@ const PLACES = {
     ['shrub_02~0', -10.4, 0, -7.4, 0, 1], ['shrub_02~1', 10.8, 0, -7.8, 1, 1.1], ['shrub_02~2', 5.6, 0, -9.2, 2, 1], ['shrub_02~3', -5.6, 0, -9.4, 0.5, 1.1],
     ['bark_debris_01', 1.6, 0, -2.3, 0.4, 1], ['dry_branches_medium_01', -3.4, 0, -2.0, 1.1, 1], ['dry_branches_medium_01', 5.6, 0, -2.5, -0.3, 0.9],
     ['wooden_lantern_01', -4.25, 0, -2.55, 0.3, 1], ['periwinkle_plant~3', -5.5, 0, -2.45, 0, 1.4], ['periwinkle_plant~5', -3.8, 0, -2.9, 0.6, 1.3], ['anthurium_botany_01~0', -6.6, 0, -2.9, 0.2, 1.3],
-    ['island_tree_01', -13, 0, -14, 0, 1.3], ['island_tree_02', 14, 0, -15, 1, 1.4],
+    ['island_tree_01', -8.6, 0, -10.5, 0, 1.6], ['island_tree_02', 9.4, 0, -11, 1, 1.7], ['island_tree_01', 15, 0, -13, 2.2, 1.5], ['island_tree_02', -15.5, 0, -12.5, 0.7, 1.6],
+    ['fern_02~2', -7.6, 0, -7.6, 1, 1.6], ['fern_02~3', 7.2, 0, -7.4, 2.4, 1.6], ['fern_02~0', -2.8, 0, -8.6, 0.3, 1.5], ['fern_02~1', 3.8, 0, -8.9, 1.9, 1.5],
   ],
 };
 // piles of fruit on the palengke's tables: [prop, how many, table x], heaped on the table top
@@ -69,6 +73,7 @@ const SURF = {
   court: ['wood_floor_worn', 2.5, 0.62], bleacher: ['concrete_floor_worn_001', 2, 1], hollowblock: ['concrete_block_wall', 2.4, 1],
   market: ['concrete_floor_damaged_01', 3, 1], stall: ['weathered_plank_siding', 1.5, 1],
   forest: ['brown_mud_leaves_01', 3, 1], bark: ['bark_willow_02', 2.5, 1],
+  plaster: ['damaged_plaster', 2.2, 1], // relief only: the painted front keeps its colours and windows
 };
 
 export async function loadEnv(base = 'assets/env/') {
@@ -104,6 +109,13 @@ export async function dress(env, id, stage, ctx) {
     const rt = await env.sky.get(skyId);
     if (rt && ctx.current()) ctx.setEnvironment(rt.texture, skyPower, skyTurn);
   })());
+  // the sky behind
+  const [bgId, bgTurn, bgBright] = BACKDROP[id] || [];
+  if (bgId && env.index.backdrop && env.index.backdrop[bgId]) jobs.push(texLoader.loadAsync(env.base + env.index.backdrop[bgId]).then((t) => {
+    if (!ctx.current()) return;
+    t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; ctx.setBackdrop(t, bgTurn, bgBright);
+    stage.group.traverse((o) => { if (o.isMesh && [].concat(o.material).some((m) => m.userData.skyStandIn)) o.visible = false; });
+  }).catch(() => { /* the painted sky stays */ }));
   // the surfaces
   const mats = new Map();
   stage.group.traverse((o) => { if (o.isMesh) for (const m of [].concat(o.material)) if (m.userData.surface) mats.set(m, m.userData.surface); });
@@ -112,6 +124,7 @@ export async function dress(env, id, stage, ctx) {
     const t = texId && (await loadTex(env, texId));
     if (!t || !t.diff || !ctx.current()) return;
     const rep = [s.w / tile, s.h / tile], use = (x) => { if (!x) return null; const c = x.clone(); c.repeat.set(...rep); if (s.rot) c.rotation = s.rot; c.needsUpdate = true; return c; };
+    if (s.detail) { m.normalMap = use(t.nor); m.normalScale = new THREE.Vector2(0.8, 0.8); if (t.arm) m.roughnessMap = use(t.arm); m.needsUpdate = true; return; }
     m.map = use(t.diff); m.normalMap = use(t.nor); m.normalScale = new THREE.Vector2(1, 1);
     if (t.arm) { m.roughnessMap = use(t.arm); m.aoMap = use(t.arm); m.aoMapIntensity = 0.8; m.metalnessMap = null; m.metalness = 0; }
     else if (t.rough) m.roughnessMap = use(t.rough);
