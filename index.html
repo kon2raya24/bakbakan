@@ -96,6 +96,10 @@ button[aria-pressed=true] { background: linear-gradient(180deg, #ff7a6a, #c0182e
 #cutin.p2 img { transform: scaleX(-1); }
 #cutin.show { animation: cut .95s cubic-bezier(.2,1,.3,1) both; }
 @keyframes cut { 0% { clip-path: inset(50% 0 50% 0); } 18% { clip-path: inset(0 0 0 0); } 80% { clip-path: inset(0 0 0 0); opacity: 1; } 100% { clip-path: inset(0 0 0 0); opacity: 0; } }
+/* between rounds: a quick fade through black */
+#fade { position: absolute; inset: 0; background: #000; pointer-events: none; opacity: 0; }
+#fade.go { animation: fadeblk .7s ease-out both; }
+@keyframes fadeblk { 0% { opacity: 1; } 100% { opacity: 0; } }
 #train { position: absolute; left: 12px; top: 90px; background: rgba(20,14,24,.72); border-radius: 10px; padding: 6px 10px; font-size: 13px; line-height: 1.35; }
 /* touch */
 #pad { position: absolute; left: 18px; bottom: calc(max(18px, env(safe-area-inset-bottom)) + 26px); width: 140px; height: 140px; border-radius: 50%; background: rgba(255,255,255,.1); border: 2px solid rgba(255,255,255,.3); pointer-events: auto; display: none; }
@@ -165,6 +169,7 @@ body.fighting .help { display: none; }
     <div class="meters"><div class="meter p1" id="mm1"><div class="mfill" id="m1"></div><span>SUPER</span></div><div class="meter p2" id="mm2"><div class="mfill" id="m2"></div><span>SUPER</span></div></div>
     <div class="combo p1" id="c1"></div><div class="combo p2" id="c2"></div>
     <div id="cutin" hidden><img alt=""><b></b></div>
+    <div id="fade"></div>
     <div class="callout p1" id="s1"></div><div class="callout p2" id="s2"></div>
     <div id="banner" hidden></div>
     <div id="train" hidden></div>

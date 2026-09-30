@@ -76,7 +76,7 @@ export function buildStage(id, scene, { low = false } = {}) {
   const tag = (m, kind, w, h, extra = {}) => { m.userData.surface = { kind, w, h, ...extra }; return m; };
   const ground = (set, { w = 40, d = 14, z = -2, rough = 0.9, color = '#ffffff', far = '#6a6660', roughMap = null, surface = null } = {}) => {
     const gm = std({ map: set.map, normalMap: set.normalMap, normalScale: new THREE.Vector2(0.8, 0.8), roughness: rough, roughnessMap: roughMap, color });
-    if (surface) tag(gm, surface, w, d, { rough, keepRough: roughMap });
+    if (surface) tag(gm, surface, w, d, { rough }); // the scanned material brings its own roughness
     add(mesh(new THREE.PlaneGeometry(w, d), gm, { rx: -Math.PI / 2, z, cast: false }));
     add(mesh(new THREE.PlaneGeometry(300, 150), std({ color: far, roughness: 1 }), { rx: -Math.PI / 2, y: -0.02, z: -60, cast: false }));
   };
@@ -240,7 +240,7 @@ export function buildStage(id, scene, { low = false } = {}) {
     Object.assign(L, { hemi: ['#cfe2ff', '#7a7264', 0.42], sun: ['#ffe8c8', 3.8, [7, 6.5, 6]], rim: ['#dff0ff', 1.2], fog: ['#c8dcea', 26, 80], exposure: 0.8, envSky: ['#5a9ee0', '#e0eef6', '#6a6a64'] });
     const wet = T.concrete(41, '#8e8e88', { size: TS, repeat: [6, 2] });
     const puddle = T.fbm(256, 128, 40, 3, T.rng(42)), rc = T.canvas(256, 128), rx = rc.getContext('2d'), img = rx.createImageData(256, 128);
-    for (let i = 0; i < puddle.length; i++) { const v = puddle[i] > 0.58 ? 30 : 220; img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; }
+    for (let i = 0; i < puddle.length; i++) { const e = Math.min(1, Math.max(0, (puddle[i] - 0.52) / 0.12)), v = 220 - e * e * (3 - 2 * e) * 185; img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; } // wet patches fade out at their edges
     rx.putImageData(img, 0, 0);
     const roughMap = T.toTex(rc, { color: false }); roughMap.wrapS = roughMap.wrapT = THREE.RepeatWrapping; roughMap.repeat.set(3, 1);
     ground(wet, { rough: 1, roughMap, far: '#5a5a54', surface: 'market' });

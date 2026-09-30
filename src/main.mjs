@@ -200,7 +200,7 @@ function onEvent(e) {
   else if (e.type === 'ko') { rumble(0, 1, 1, 450); rumble(1, 1, 1, 450); }
   else if (e.type === 'block') rumble(1 - e.side, 0.15, 0.35, 70);
   switch (e.type) {
-    case 'round': banner(e.final ? 'HULING ROUND' : `ROUND ${e.n}`, e.final ? 'Final round' : '', 1500); break;
+    case 'round': banner(e.final ? 'HULING ROUND' : `ROUND ${e.n}`, e.final ? 'Final round' : '', 1500); if (e.n > 1) { const fd = $('fade'); fd.classList.remove('go'); void fd.offsetWidth; fd.classList.add('go'); } break;
     case 'fight': banner('LABAN!', 'Fight!', 700); break;
     case 'hit':
       if (e.combo >= 2) { el.c[e.side].innerHTML = `${e.combo} HITS<small>${e.combo >= 5 ? 'GRABE!' : 'combo'}</small>`; el.c[e.side].classList.remove('pop'); void el.c[e.side].offsetWidth; el.c[e.side].classList.add('pop'); comboT[e.side] = 1.1; }

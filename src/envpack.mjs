@@ -71,7 +71,7 @@ const TABLE_Y = 0.87, TABLE_Z = -3.7;
 const SURF = {
   asphalt: ['asphalt_02', 3, 1], kerb: ['concrete_pavement', 1.5, 1], roof: ['corrugated_iron_02', 2, 0.8],
   court: ['wood_floor_worn', 2.5, 0.62], bleacher: ['concrete_floor_worn_001', 2, 1], hollowblock: ['concrete_block_wall', 2.4, 1],
-  market: ['concrete_floor_damaged_01', 3, 1], stall: ['weathered_plank_siding', 1.5, 1],
+  market: ['concrete_floor_damaged_01', 3, 0.78], // a little damp stall: ['weathered_plank_siding', 1.5, 1],
   forest: ['brown_mud_leaves_01', 3, 1], bark: ['bark_willow_02', 2.5, 1],
   plaster: ['damaged_plaster', 2.2, 1], // relief only: the painted front keeps its colours and windows
 };
